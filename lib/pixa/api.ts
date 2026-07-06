@@ -9,6 +9,7 @@ import {
   translateOrFixPrompt,
 } from "../ai/openrouter";
 import { generateImage } from "../ai/runware";
+import { computeAdvance, computeNextTryNumber, computeScoreDelta, isOutOfAttempts } from "./gameLogic";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 type GameProgress = Database["public"]["Enums"]["game_progress"];
@@ -71,6 +72,38 @@ export const createImageSchema = z.object({
   level: levelSchema.default("mine"),
   source: z.boolean().default(false),
   picImage: z.string().url().optional(),
+});
+
+const bankLevelSchema = z.enum(["beginners", "advanced", "experts"]);
+
+export const adminListImagesQuerySchema = z.object({
+  level: z.enum(["beginners", "advanced", "experts", "mine", "all"]).default("all"),
+});
+
+export const adminCreateImageSchema = z.object({
+  url: z.string().url(),
+  prompt: z.string().trim().min(1).max(4000),
+  level: bankLevelSchema.default("beginners"),
+});
+
+export const adminGenerateImageSchema = z.object({
+  topic: z.string().trim().min(1).max(120),
+  grade: z.string().trim().min(1).max(80),
+  description: z.string().trim().min(1).max(1000),
+  level: bankLevelSchema.default("beginners"),
+});
+
+export const adminUpdateImageSchema = z
+  .object({
+    level: levelSchema.optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((value) => value.level !== undefined || value.archived !== undefined, {
+    message: "Nothing to update.",
+  });
+
+export const createBannedWordSchema = z.object({
+  word: z.string().trim().min(1).max(120),
 });
 
 export class ApiError extends Error {
@@ -149,6 +182,36 @@ export async function requireTeacher() {
   if (teacherError) throw teacherError;
 
   return { admin, authUser: user, pixaUser, teacher };
+}
+
+export async function requireAdmin() {
+  const context = await requireTeacher();
+  if (!context.pixaUser.admin_permissions_boolean) {
+    throw new ApiError("Admin permissions are required.", 403);
+  }
+  return context;
+}
+
+export async function getAdminPageAccess() {
+  const authClient = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await authClient.auth.getUser();
+
+  if (!user?.email) return { status: "signed_out" as const };
+
+  const admin = createAdminClient();
+  const { data: pixaUser } = await admin
+    .from("users")
+    .select("id, name_text, admin_permissions_boolean")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+
+  if (!pixaUser?.admin_permissions_boolean) {
+    return { status: "forbidden" as const, email: user.email };
+  }
+
+  return { status: "ok" as const, email: user.email, pixaUser };
 }
 
 export function parseRequest<T>(schema: z.ZodType<T>, request: Request) {
@@ -282,28 +345,26 @@ export async function advanceGame(gameId: string) {
   const { admin } = await requireTeacher();
   const game = await getTeacherGame(admin, gameId);
   const images = await getGameImages(admin, game.id);
-  const nextIndex = game.current_round_index + 1;
-  const nextImage = images[nextIndex];
+  const advance = computeAdvance(images, game.current_round_index);
 
-  const update =
-    nextImage === undefined
-      ? {
-          progress_option_progress: "results" as GameProgress,
-          results_showing_boolean: true,
-          current_image_id: null,
-          finished_at: new Date().toISOString(),
-        }
-      : {
-          progress_option_progress: "active" as GameProgress,
-          results_showing_boolean: false,
-          current_image_id: nextImage.image_id,
-          current_round_index: nextIndex,
-        };
+  const update = advance.finished
+    ? {
+        progress_option_progress: "results" as GameProgress,
+        results_showing_boolean: true,
+        current_image_id: null,
+        finished_at: new Date().toISOString(),
+      }
+    : {
+        progress_option_progress: "active" as GameProgress,
+        results_showing_boolean: false,
+        current_image_id: advance.nextImageId,
+        current_round_index: advance.nextIndex,
+      };
 
   const { data, error } = await admin.from("games").update(update).eq("id", game.id).select().single();
   if (error) throw error;
   await upsertGameData(admin, game.id);
-  return { game: data, finished: nextImage === undefined };
+  return { game: data, finished: advance.finished };
 }
 
 export async function getGameStateByIdOrCode(input: { id?: string; code?: number }) {
@@ -370,7 +431,7 @@ export async function submitPrompt(request: Request) {
   }
 
   const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
-  if ((existing?.try_number ?? 0) >= 2) {
+  if (isOutOfAttempts(existing?.try_number)) {
     throw new ApiError("Only two attempts are allowed for this image.", 409);
   }
 
@@ -382,7 +443,7 @@ export async function submitPrompt(request: Request) {
     studentPrompt: moderation.translated_prompt,
   });
 
-  const nextTry = existing ? existing.try_number + 1 : 1;
+  const nextTry = computeNextTryNumber(existing?.try_number);
   const submissionPayload = {
     game_id: game.id,
     user_id: body.userId,
@@ -410,8 +471,8 @@ export async function submitPrompt(request: Request) {
 
   if (upsertError) throw upsertError;
 
-  const previousScore = existing?.score1_number ?? 0;
-  await updateUserScores(admin, body.userId, Number(score.score) - previousScore);
+  const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
+  await updateUserScores(admin, body.userId, scoreDelta);
   await upsertGameData(admin, game.id);
 
   return { submission, moderation, score };
@@ -485,6 +546,7 @@ export async function listImages(request: Request) {
     .from("images")
     .select("*")
     .eq("level_option_images_level", level)
+    .eq("back_boolean", false)
     .order("created_at", { ascending: false })
     .limit(60);
 
@@ -512,6 +574,164 @@ export async function createImage(request: Request) {
 
   if (error) throw error;
   return { image: data };
+}
+
+export async function adminListImages(request: Request) {
+  await requireAdmin();
+  const url = new URL(request.url);
+  const { level } = adminListImagesQuerySchema.parse({
+    level: url.searchParams.get("level") ?? undefined,
+  });
+  const admin = createAdminClient();
+
+  let query = admin.from("images").select("*").order("created_at", { ascending: false });
+  if (level !== "all") query = query.eq("level_option_images_level", level);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return { images: data };
+}
+
+export async function adminCreateImage(request: Request) {
+  const body = await parseRequest(adminCreateImageSchema, request);
+  const { admin, pixaUser } = await requireAdmin();
+  const prompt = await translateOrFixPrompt(body.prompt);
+
+  const { data, error } = await admin
+    .from("images")
+    .insert({
+      owner_user_id: pixaUser.id,
+      url_text: body.url,
+      pic_image: body.url,
+      prompt_text: prompt,
+      source_boolean: true,
+      level_option_images_level: body.level,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return { image: data };
+}
+
+export async function adminGenerateImage(request: Request) {
+  const body = await parseRequest(adminGenerateImageSchema, request);
+  const { admin, pixaUser } = await requireAdmin();
+  const prompt = await createTeacherImagePrompt(body);
+  const image = await generateImage(prompt);
+
+  const { data, error } = await admin
+    .from("images")
+    .insert({
+      owner_user_id: pixaUser.id,
+      url_text: image.imageURL,
+      pic_image: image.imageURL,
+      prompt_text: prompt,
+      source_boolean: true,
+      level_option_images_level: body.level,
+      runware_task_uuid: image.taskUUID,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return { image: data, prompt };
+}
+
+export async function adminUpdateImage(request: Request, imageId: string) {
+  const body = await parseRequest(adminUpdateImageSchema, request);
+  const { admin } = await requireAdmin();
+
+  const update: Database["public"]["Tables"]["images"]["Update"] = {};
+  if (body.level !== undefined) update.level_option_images_level = body.level;
+  if (body.archived !== undefined) update.back_boolean = body.archived;
+
+  const { data, error } = await admin.from("images").update(update).eq("id", imageId).select().single();
+  if (error) throw error;
+  return { image: data };
+}
+
+export async function adminDeleteImage(imageId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { error } = await admin.from("images").delete().eq("id", imageId);
+  if (error) {
+    if (error.code === "23503") {
+      throw new ApiError(
+        "התמונה בשימוש במשחק קיים ולא ניתן למחוק אותה — אפשר לארכב אותה במקום.",
+        409,
+      );
+    }
+    throw error;
+  }
+
+  return { deleted: true };
+}
+
+export async function listBannedWords() {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("banned_words").select("*").order("word_text", { ascending: true });
+  if (error) throw error;
+  return { words: data };
+}
+
+export async function createBannedWord(request: Request) {
+  const body = await parseRequest(createBannedWordSchema, request);
+  const { admin } = await requireAdmin();
+
+  const { data, error } = await admin
+    .from("banned_words")
+    .insert({ word_text: body.word })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      throw new ApiError("המילה כבר קיימת ברשימה.", 409);
+    }
+    throw error;
+  }
+
+  return { word: data };
+}
+
+export async function deleteBannedWord(wordId: string) {
+  const { admin } = await requireAdmin();
+  const { error } = await admin.from("banned_words").delete().eq("id", wordId);
+  if (error) throw error;
+  return { deleted: true };
+}
+
+export async function getAdminDashboard() {
+  const { admin } = await requireAdmin();
+
+  const [
+    { count: gamesCount },
+    { count: submissionsCount },
+    { count: playersCount },
+    { data: reviews },
+    { data: recentGames },
+  ] = await Promise.all([
+    admin.from("games_data").select("id", { count: "exact", head: true }),
+    admin.from("submissions").select("id", { count: "exact", head: true }),
+    admin.from("game_players").select("id", { count: "exact", head: true }),
+    admin.from("reviews").select("stars_number").not("stars_number", "is", null),
+    admin.from("games_data").select("*").order("created_at", { ascending: false }).limit(20),
+  ]);
+
+  const starsList = (reviews ?? []).map((row) => row.stars_number ?? 0);
+  const avgStars = starsList.length > 0 ? starsList.reduce((sum, value) => sum + value, 0) / starsList.length : null;
+
+  return {
+    gamesCount: gamesCount ?? 0,
+    submissionsCount: submissionsCount ?? 0,
+    playersCount: playersCount ?? 0,
+    reviewsCount: starsList.length,
+    avgStars,
+    recentGames: recentGames ?? [],
+  };
 }
 
 async function generateUniqueGameCode(admin: SupabaseAdmin) {
@@ -585,7 +805,7 @@ async function getGamePlayers(admin: SupabaseAdmin, gameId: string) {
 async function getGameSubmissions(admin: SupabaseAdmin, gameId: string) {
   const { data, error } = await admin
     .from("submissions")
-    .select("*")
+    .select("*, user:users(id, name_text, avatar_image, final_score_number)")
     .eq("game_id", gameId)
     .order("updated_at", { ascending: false });
 

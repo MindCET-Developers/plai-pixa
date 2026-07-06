@@ -1,11 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getPublicAppUrl } from "@/lib/supabase/env";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const next = request.nextUrl.searchParams.get("next") || "/pixa/create";
-  const redirectTo = new URL("/auth/callback", getPublicAppUrl());
+  const redirectTo = new URL("/auth/callback", request.nextUrl.origin);
   redirectTo.searchParams.set("next", next);
 
   const { data, error } = await supabase.auth.signInWithOAuth({
