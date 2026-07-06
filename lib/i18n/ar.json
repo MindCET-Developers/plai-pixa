@@ -1,1 +1,17 @@
-{}
+{
+  "landing": {
+    "howItWorks": "كيفية اللعب؟"
+  },
+  "play": {
+    "joinedSuccess": "تم تسجيل الدخول بنجاح",
+    "exitGame": "الخروج من اللعبة"
+  },
+  "common": {
+    "exit": "خروج"
+  },
+  "create": {
+    "nextImage": "إلى الصورة التالية",
+    "joinedPlayers": "المشاركون الذين انضموا:",
+    "viewBoard": "عرض لوحة الطلاب"
+  }
+}

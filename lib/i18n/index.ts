@@ -40,7 +40,7 @@ export function getDict(lang: Lang): HeDict {
   return he;
 }
 
-export function dirFor(lang: Lang): "rtl" {
+export function dirFor(): "rtl" {
   // Both Hebrew and Arabic are RTL.
   return "rtl";
 }
