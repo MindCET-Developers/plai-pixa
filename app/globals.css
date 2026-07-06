@@ -1,26 +1,46 @@
 @import "tailwindcss";
 
+/* ===== PIXA design tokens (extracted from the original Bubble app) ===== */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #091747;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-open-sans), "Segoe UI", Arial, sans-serif;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Bubble palette */
+  --color-pixa-ink: #091747; /* main text */
+  --color-pixa-primary: #0205d3; /* primary blue */
+  --color-pixa-purple: #8635cf; /* custom purple */
+  --color-pixa-pink: #dd4369; /* custom pink/red */
+  --color-pixa-light: #fff6f5; /* light background */
+  --color-pixa-deep: #3f1961; /* dark purple */
+  --color-pixa-btn-dark: #0b1758; /* button text dark */
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ===== Bubble glass card (verbatim from the original app) ===== */
+.glass-card {
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  background-blend-mode: overlay;
+  box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+}
+
+/* ===== LTR islands inside RTL pages (game code, scores, leaderboard) ===== */
+.ltr-field,
+#codeinput,
+#picslist,
+#stars,
+#leader,
+#table-scoreboard1 {
+  direction: ltr;
 }
