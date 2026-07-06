@@ -53,6 +53,10 @@ export const generateTeacherImageSchema = z.object({
   level: levelSchema.default("mine"),
 });
 
+export const listImagesQuerySchema = z.object({
+  level: levelSchema.default("beginners"),
+});
+
 export const createImageSchema = z.object({
   url: z.string().url(),
   prompt: z.string().trim().min(1).max(4000),
@@ -427,6 +431,36 @@ export async function generateTeacherImage(request: Request) {
 
   if (error) throw error;
   return { image: data, prompt, runware: image };
+}
+
+export async function listImages(request: Request) {
+  const url = new URL(request.url);
+  const { level } = listImagesQuerySchema.parse({
+    level: url.searchParams.get("level") ?? undefined,
+  });
+  const admin = createAdminClient();
+
+  if (level === "mine") {
+    const { pixaUser } = await requireTeacher();
+    const { data, error } = await admin
+      .from("images")
+      .select("*")
+      .eq("owner_user_id", pixaUser.id)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return { images: data };
+  }
+
+  const { data, error } = await admin
+    .from("images")
+    .select("*")
+    .eq("level_option_images_level", level)
+    .order("created_at", { ascending: false })
+    .limit(60);
+
+  if (error) throw error;
+  return { images: data };
 }
 
 export async function createImage(request: Request) {
