@@ -189,6 +189,28 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["images"]["Insert"]>;
         Relationships: [];
       };
+      reviews: {
+        Row: {
+          created_at: string;
+          game_id: string | null;
+          id: string;
+          message_text: string | null;
+          reviewr_option_reviewrs: Database["public"]["Enums"]["reviewer_type"];
+          stars_number: number | null;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          game_id?: string | null;
+          id?: string;
+          message_text?: string | null;
+          reviewr_option_reviewrs: Database["public"]["Enums"]["reviewer_type"];
+          stars_number?: number | null;
+          user_id?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["reviews"]["Insert"]>;
+        Relationships: [];
+      };
       submissions: {
         Row: {
           ai_raw_json: Json | null;

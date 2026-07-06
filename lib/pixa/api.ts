@@ -46,6 +46,14 @@ export const submitPromptSchema = z
     path: ["gameId"],
   });
 
+export const submitReviewSchema = z.object({
+  gameId: uuidSchema,
+  userId: uuidSchema.optional(),
+  stars: z.coerce.number().int().min(1).max(5).optional(),
+  message: z.string().trim().max(1000).optional(),
+  reviewer: z.enum(["teacher", "student"]).default("student"),
+});
+
 export const generateTeacherImageSchema = z.object({
   topic: z.string().trim().min(1).max(120),
   grade: z.string().trim().min(1).max(80),
@@ -407,6 +415,27 @@ export async function submitPrompt(request: Request) {
   await upsertGameData(admin, game.id);
 
   return { submission, moderation, score };
+}
+
+export async function submitReview(request: Request) {
+  const body = await parseRequest(submitReviewSchema, request);
+  const admin = createAdminClient();
+  await getGameById(admin, body.gameId);
+
+  const { data, error } = await admin
+    .from("reviews")
+    .insert({
+      game_id: body.gameId,
+      user_id: body.userId ?? null,
+      stars_number: body.stars ?? null,
+      message_text: body.message ?? null,
+      reviewr_option_reviewrs: body.reviewer,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return { review: data };
 }
 
 export async function generateTeacherImage(request: Request) {
