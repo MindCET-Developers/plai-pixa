@@ -27,10 +27,12 @@ async function chatCompletion({
   messages,
   model,
   jsonSchema,
+  maxTokens = 500,
 }: {
   messages: ChatMessage[];
   model: string;
   jsonSchema?: JsonSchema;
+  maxTokens?: number;
 }) {
   const env = getOpenRouterEnv();
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -45,6 +47,7 @@ async function chatCompletion({
       model,
       messages,
       temperature: 0.2,
+      max_tokens: maxTokens,
       ...(jsonSchema
         ? {
             response_format: {
@@ -203,6 +206,7 @@ Student prompt: "${studentPrompt}"`,
     model: env.visionModel,
     jsonSchema: scoreJsonSchema,
     messages: [{ role: "user", content }],
+    maxTokens: 1200,
   });
 
   return parseJsonFromModel(response, scoreResultSchema);
