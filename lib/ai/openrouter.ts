@@ -1,5 +1,5 @@
 import { getOpenRouterEnv } from "../supabase/env";
-import { parseJsonFromModel } from "./json";
+import { AIJsonParseError, parseJsonFromModel } from "./json";
 import {
   moderationResultSchema,
   scoreResultSchema,
@@ -178,7 +178,7 @@ export async function scoreStudentImage({
   studentPrompt: string;
 }): Promise<ScoreResult> {
   const env = getOpenRouterEnv();
-  const content: Array<TextContent | ImageContent> = [
+  const buildContent = (compact: boolean): Array<TextContent | ImageContent> => [
     {
       type: "text",
       text: `You are an AI model tasked with evaluating the similarity between a student's image and an existing image, as well as comparing the student's prompt to the prompt used to create the existing image.
@@ -187,7 +187,11 @@ Provide JSON only with:
 - feedback: brief constructive Hebrew feedback, maximum 25 words.
 - image_comparison_score: number out of 70.
 - prompt_comparison_score: number out of 30.
-- score_breakdown: detailed paragraph breakdown for Subject Matter (42), Color Palette (7), Composition (7), Emotion and Mood (7), Artistic Style (7), and prompt relevance (30).
+- score_breakdown: ${
+        compact
+          ? "one concise Hebrew sentence, maximum 40 words, mentioning the main visual match and one improvement."
+          : "concise paragraph, maximum 80 words, covering Subject Matter (42), Color Palette (7), Composition (7), Emotion and Mood (7), Artistic Style (7), and prompt relevance (30)."
+      }
 - score: final total score as a string.
 
 The final score must equal image_comparison_score + prompt_comparison_score.
@@ -202,14 +206,23 @@ Student prompt: "${studentPrompt}"`,
     { type: "image_url", image_url: { url: studentImageUrl } },
   ];
 
-  const response = await chatCompletion({
-    model: env.visionModel,
-    jsonSchema: scoreJsonSchema,
-    messages: [{ role: "user", content }],
-    maxTokens: 1200,
-  });
+  for (const attempt of [0, 1]) {
+    const response = await chatCompletion({
+      model: env.visionModel,
+      jsonSchema: scoreJsonSchema,
+      messages: [{ role: "user", content: buildContent(attempt === 1) }],
+      maxTokens: attempt === 0 ? 1800 : 2200,
+    });
 
-  return parseJsonFromModel(response, scoreResultSchema);
+    try {
+      return parseJsonFromModel(response, scoreResultSchema);
+    } catch (error) {
+      if (attempt === 0 && error instanceof AIJsonParseError) continue;
+      throw error;
+    }
+  }
+
+  throw new AIJsonParseError("AI response was not valid JSON after retry.");
 }
 
 export async function createTeacherImagePrompt({

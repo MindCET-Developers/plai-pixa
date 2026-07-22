@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export class AIJsonParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AIJsonParseError";
+  }
+}
+
 export function parseJsonFromModel<T>(text: string, schema: z.ZodSchema<T>): T {
   const trimmed = text.trim();
   const withoutFence = trimmed
@@ -16,7 +23,7 @@ export function parseJsonFromModel<T>(text: string, schema: z.ZodSchema<T>): T {
   try {
     parsed = JSON.parse(candidate);
   } catch (error) {
-    throw new Error(`AI response was not valid JSON: ${(error as Error).message}`);
+    throw new AIJsonParseError(`AI response was not valid JSON: ${(error as Error).message}`);
   }
 
   return schema.parse(parsed);

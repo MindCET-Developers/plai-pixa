@@ -22,6 +22,7 @@ export function StudentPromptAttemptForm({
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const genericSubmitError = "לא הצלחנו ליצור תמונה כרגע. נסו שוב בעוד רגע.";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,15 +37,15 @@ export function StudentPromptAttemptForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameId, userId, prompt }),
       });
-      const body = await response.json();
+      const body = await response.json().catch(() => null);
 
       if (!response.ok || !body.ok) {
-        throw new Error(body.error ?? "לא הצלחנו לשלוח את הפרומפט.");
+        throw new Error(response.status >= 500 ? genericSubmitError : (body?.error ?? genericSubmitError));
       }
 
       onSubmitted(body.data.submission as SubmissionRow);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "לא הצלחנו לשלוח את הפרומפט.");
+      setError(err instanceof Error ? err.message : genericSubmitError);
       setSubmitting(false);
     }
   }
@@ -86,7 +87,10 @@ export function StudentPromptAttemptForm({
 
         {error ? (
           <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
-            {error === "יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב." ? he.play.inappropriatePrompt : error}
+            {error === "יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב." ||
+            error === "יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב"
+              ? he.play.inappropriatePrompt
+              : error}
           </p>
         ) : null}
       </form>

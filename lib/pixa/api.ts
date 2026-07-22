@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AIJsonParseError } from "../ai/json";
 import { createAdminClient } from "../supabase/admin";
 import { createClient as createServerSupabaseClient } from "../supabase/server";
 import type { Database, Tables } from "../supabase/database.types";
@@ -129,6 +130,14 @@ export function fail(error: unknown) {
 
   if (error instanceof ApiError) {
     return Response.json({ ok: false, error: error.message }, { status: error.status });
+  }
+
+  if (error instanceof AIJsonParseError) {
+    console.error(error);
+    return Response.json(
+      { ok: false, error: "לא הצלחנו להשלים את בדיקת התמונה. נסו שוב בעוד רגע." },
+      { status: 502 },
+    );
   }
 
   const message = error instanceof Error ? error.message : "Unexpected server error.";
