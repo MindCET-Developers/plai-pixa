@@ -27,10 +27,6 @@ export function CreateGameWizard() {
     });
   }
 
-  function addGenerated(image: BankImage) {
-    setSelected((current) => (current.length >= 2 ? current : [...current, image]));
-  }
-
   async function onCreateGame() {
     if (selected.length === 0) return;
     setCreateState("creating");
@@ -42,7 +38,6 @@ export function CreateGameWizard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageIds: selected.map((image) => image.id),
-          studentBaseUrl: `${window.location.origin}/pixa/play`,
         }),
       });
       const body = await response.json();
@@ -104,13 +99,6 @@ export function CreateGameWizard() {
         </div>
       </div>
 
-      <div className="glass-card border border-white/20 p-6">
-        <h2 className="text-lg font-extrabold">{he.create.imageBank}</h2>
-        <div className="mt-4">
-          <ImagePicker selected={selected} onToggle={toggleImage} onGenerated={addGenerated} />
-        </div>
-      </div>
-
       <div className="flex items-center justify-between gap-4">
         <button
           type="button"
@@ -123,6 +111,13 @@ export function CreateGameWizard() {
         {createError ? (
           <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-800">{createError}</p>
         ) : null}
+      </div>
+
+      <div className="glass-card border border-white/20 p-6">
+        <h2 className="text-lg font-extrabold">{he.create.imageBank}</h2>
+        <div className="mt-4">
+          <ImagePicker selected={selected} onToggle={toggleImage} />
+        </div>
       </div>
     </div>
   );

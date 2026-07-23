@@ -235,20 +235,27 @@ export async function createTeacherImagePrompt({
   description: string;
 }) {
   const env = getOpenRouterEnv();
-  const response = await chatCompletion({
-    model: env.textModel,
-    jsonSchema: singlePromptJsonSchema,
-    messages: [
-      {
-        role: "user",
-        content: `Write a prompt to create an image that fits this topic: ${topic} and this class: ${grade}.
+  const content = `Write a prompt to create an image that fits this topic: ${topic} and this class: ${grade}.
 Here is a description for the picture: ${description}
-The prompt must be in English. Return JSON only.`,
-      },
-    ],
-  });
+The prompt must be in English. Return JSON only.`;
 
-  return parseJsonFromModel(response, teacherImagePromptSchema).prompt;
+  for (const attempt of [0, 1]) {
+    const response = await chatCompletion({
+      model: env.textModel,
+      jsonSchema: singlePromptJsonSchema,
+      messages: [{ role: "user", content }],
+      maxTokens: attempt === 0 ? 500 : 900,
+    });
+
+    try {
+      return parseJsonFromModel(response, teacherImagePromptSchema).prompt;
+    } catch (error) {
+      if (attempt === 0 && error instanceof AIJsonParseError) continue;
+      throw error;
+    }
+  }
+
+  throw new AIJsonParseError("AI response was not valid JSON after retry.");
 }
 
 export async function translateOrFixPrompt(prompt: string) {

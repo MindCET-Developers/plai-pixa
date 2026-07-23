@@ -84,6 +84,12 @@ export const he = {
     stepGetScore: "קבלת ציון",
     stepImprove: "שיפור הפרומפט",
     stepCreate: "יצירת תמונה",
+    generatingTips: [
+      "מערבבים צבעים...",
+      "מציירים את הקווים הראשונים...",
+      "מוסיפים פרטים קטנים...",
+      "כמעט מוכנים...",
+    ],
     myScore: "הציון שלי: {score} נקודות",
     tipLabel: "טיפ לשיפור הפרומט:",
     exitGame: "יציאה מהמשחק",
@@ -98,6 +104,10 @@ export const he = {
     leaderboardTitle: "לוח מובילים",
     reviewPrompt: "איך היה המשחק? נשמח למשוב",
     reviewThanks: "תודה על המשוב!",
+    showScores: "הראה ציונים",
+    expandGallery: "תצוגה מורחבת",
+    collapseGallery: "צמצום תצוגה",
+    closeImage: "סגירה",
   },
 
   admin: {

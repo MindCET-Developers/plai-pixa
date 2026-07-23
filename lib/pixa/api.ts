@@ -11,6 +11,7 @@ import {
 } from "../ai/openrouter";
 import { generateImage } from "../ai/runware";
 import { computeAdvance, computeNextTryNumber, computeScoreDelta, isOutOfAttempts } from "./gameLogic";
+import { getPublicAppUrl } from "../supabase/env";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 type GameProgress = Database["public"]["Enums"]["game_progress"];
@@ -26,7 +27,6 @@ export const createGameSchema = z.object({
       school: z.string().trim().optional(),
     })
     .optional(),
-  studentBaseUrl: z.string().url().optional(),
 });
 
 export const joinGameSchema = z.object({
@@ -135,7 +135,7 @@ export function fail(error: unknown) {
   if (error instanceof AIJsonParseError) {
     console.error(error);
     return Response.json(
-      { ok: false, error: "לא הצלחנו להשלים את בדיקת התמונה. נסו שוב בעוד רגע." },
+      { ok: false, error: "לא הצלחנו להשלים את הפעולה. נסו שוב בעוד רגע." },
       { status: 502 },
     );
   }
@@ -242,7 +242,7 @@ export async function createGame(request: Request) {
   }
 
   const idNumber = await generateUniqueGameCode(admin);
-  const studentUrl = new URL(body.studentBaseUrl ?? `${new URL(request.url).origin}/pixa/play`);
+  const studentUrl = new URL(`${getPublicAppUrl()}/pixa/play`);
   studentUrl.searchParams.set("ids", String(idNumber));
 
   const { data: game, error: gameError } = await admin

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { he } from "@/lib/i18n/he";
 import type { BankImage, ImagesLevel } from "./types";
 
@@ -11,29 +11,17 @@ const TABS: { level: ImagesLevel; label: string; tip?: string }[] = [
   { level: "mine", label: he.levels.mine },
 ];
 
-type GenerateState = "idle" | "generating" | "error";
-
 export function ImagePicker({
   selected,
   onToggle,
-  onGenerated,
 }: {
   selected: BankImage[];
   onToggle: (image: BankImage) => void;
-  onGenerated: (image: BankImage) => void;
 }) {
   const [tab, setTab] = useState<ImagesLevel>("beginners");
   const [images, setImages] = useState<BankImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-
-  const [subject, setSubject] = useState("");
-  const [grade, setGrade] = useState("");
-  const [description, setDescription] = useState("");
-  const [generateState, setGenerateState] = useState<GenerateState>("idle");
-  const [generateError, setGenerateError] = useState("");
-
   useEffect(() => {
     let cancelled = false;
 
@@ -63,37 +51,7 @@ export function ImagePicker({
     return () => {
       cancelled = true;
     };
-  }, [tab, reloadKey]);
-
-  async function onGenerate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!subject.trim() || !grade.trim() || !description.trim()) return;
-
-    setGenerateState("generating");
-    setGenerateError("");
-
-    try {
-      const response = await fetch("/api/pixa/images/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: subject, grade, description, level: "mine" }),
-      });
-      const body = await response.json();
-
-      if (!response.ok || !body.ok) {
-        throw new Error(body.error ?? "לא הצלחנו ליצור את התמונה.");
-      }
-
-      const image = body.data.image as BankImage;
-      setGenerateState("idle");
-      setDescription("");
-      onGenerated(image);
-      if (tab === "mine") setReloadKey((key) => key + 1);
-    } catch (error) {
-      setGenerateState("error");
-      setGenerateError(error instanceof Error ? error.message : "לא הצלחנו ליצור את התמונה.");
-    }
-  }
+  }, [tab]);
 
   const isSelected = (id: string) => selected.some((image) => image.id === id);
   const selectionFull = selected.length >= 2;
@@ -165,46 +123,9 @@ export function ImagePicker({
 
       <div className="rounded-xl border border-white/15 bg-white/5 p-5">
         <h2 className="text-lg font-extrabold text-white">{he.create.customImages}</h2>
-        <form onSubmit={onGenerate} className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm font-bold text-white/82">
-            {he.create.subject}
-            <input
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              maxLength={120}
-              className="mt-2 min-h-11 w-full rounded-lg border border-white/30 bg-white px-4 text-pixa-ink outline-none ring-pixa-pink transition focus:ring-4"
-            />
-          </label>
-          <label className="block text-sm font-bold text-white/82">
-            {he.create.grade}
-            <input
-              value={grade}
-              onChange={(event) => setGrade(event.target.value)}
-              maxLength={80}
-              className="mt-2 min-h-11 w-full rounded-lg border border-white/30 bg-white px-4 text-pixa-ink outline-none ring-pixa-pink transition focus:ring-4"
-            />
-          </label>
-          <label className="block text-sm font-bold text-white/82 sm:col-span-2">
-            {he.create.describeImage}
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              maxLength={1000}
-              rows={3}
-              className="mt-2 w-full rounded-lg border border-white/30 bg-white px-4 py-2 text-pixa-ink outline-none ring-pixa-pink transition focus:ring-4"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={generateState === "generating" || !subject.trim() || !grade.trim() || !description.trim()}
-            className="min-h-11 w-full rounded-lg bg-pixa-purple px-5 py-2 font-extrabold text-white transition hover:bg-[#7530b7] disabled:cursor-not-allowed disabled:opacity-55 sm:col-span-2 sm:w-auto"
-          >
-            {generateState === "generating" ? "יוצרים תמונה..." : he.create.generateImages}
-          </button>
-        </form>
-        {generateError ? (
-          <p className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-800">{generateError}</p>
-        ) : null}
+        <div className="mt-4 flex items-center justify-center rounded-lg border border-dashed border-white/25 bg-white/5 px-4 py-8 text-center">
+          <p className="text-sm font-bold text-white/60">בקרוב - יצירת תמונות בהתאמה אישית</p>
+        </div>
       </div>
     </div>
   );

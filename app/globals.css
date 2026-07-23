@@ -35,6 +35,30 @@ body {
   backdrop-filter: blur(10px);
 }
 
+/* ===== Generation progress feedback ===== */
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(150%);
+  }
+  100% {
+    transform: translateX(150%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ===== LTR islands inside RTL pages (game code, scores, leaderboard) ===== */
 .ltr-field,
 #codeinput,
