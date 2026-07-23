@@ -27,6 +27,10 @@ export function CreateGameWizard() {
     });
   }
 
+  function addGenerated(image: BankImage) {
+    setSelected((current) => (current.length >= 2 ? current : [...current, image]));
+  }
+
   async function onCreateGame() {
     if (selected.length === 0) return;
     setCreateState("creating");
@@ -116,7 +120,7 @@ export function CreateGameWizard() {
       <div className="glass-card border border-white/20 p-6">
         <h2 className="text-lg font-extrabold">{he.create.imageBank}</h2>
         <div className="mt-4">
-          <ImagePicker selected={selected} onToggle={toggleImage} />
+          <ImagePicker selected={selected} onToggle={toggleImage} onGenerated={addGenerated} />
         </div>
       </div>
     </div>
