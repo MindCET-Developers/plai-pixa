@@ -295,6 +295,16 @@ export default async function Home({
           </form>
         </div>
       </section>
+
+      <footer className="border-t border-pixa-ink/10 bg-white px-5 py-8 sm:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-sm font-bold text-pixa-ink/72 sm:flex-row">
+          <p>PIXA — מכון מיינדסט (MindCET), המרכז לטכנולוגיה חינוכית</p>
+          <nav className="flex items-center gap-6">
+            <Link href="/privacy">מדיניות פרטיות</Link>
+            <Link href="/terms">תנאי שימוש</Link>
+          </nav>
+        </div>
+      </footer>
     </main>
   );
 }
