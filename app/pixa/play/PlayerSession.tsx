@@ -20,7 +20,9 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
 
     async function refresh() {
       try {
-        const response = await fetch(`/api/pixa/games/${player.gameId}/state`);
+        const response = await fetch(
+          `/api/pixa/games/${player.gameId}/state?userId=${encodeURIComponent(player.userId)}`,
+        );
         const body = await response.json();
         if (!cancelled && response.ok && body.ok) {
           setState(body.data as GameState);
@@ -50,7 +52,7 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
       onRealtime.cancel();
       supabase.removeChannel(channel);
     };
-  }, [player.gameId]);
+  }, [player.gameId, player.userId]);
 
   const game = state?.game;
   const currentImageId = game?.current_image_id ?? null;
