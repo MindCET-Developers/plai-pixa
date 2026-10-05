@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/client";
+import { debounceRefresh, startFallbackPolling } from "@/lib/pixa/polling";
 import type { CreatedGame } from "./types";
 
 type Player = {
@@ -18,7 +19,6 @@ export function GameLobby({ game, code, joinUrl }: { game: CreatedGame; code: nu
   const [players, setPlayers] = useState<Player[]>([]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     QRCode.toDataURL(joinUrl, { margin: 1, width: 220, color: { dark: "#091747", light: "#ffffff" } })
@@ -40,7 +40,8 @@ export function GameLobby({ game, code, joinUrl }: { game: CreatedGame; code: nu
     }
 
     refresh();
-    pollRef.current = setInterval(refresh, 3000);
+    const stopPolling = startFallbackPolling(refresh);
+    const onRealtime = debounceRefresh(refresh);
 
     const supabase = createClient();
     const channel = supabase
@@ -48,12 +49,13 @@ export function GameLobby({ game, code, joinUrl }: { game: CreatedGame; code: nu
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${game.id}` },
-        () => refresh(),
+        onRealtime,
       )
       .subscribe();
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      stopPolling();
+      onRealtime.cancel();
       supabase.removeChannel(channel);
     };
   }, [game.id]);
