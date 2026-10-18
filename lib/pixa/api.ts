@@ -11,6 +11,7 @@ import {
 } from "../ai/openrouter";
 import { generateImage } from "../ai/runware";
 import { computeAdvance, computeNextTryNumber, computeScoreDelta, isOutOfAttempts } from "./gameLogic";
+import { GAME_CHANGED_EVENT, gameChannelTopic } from "./gameChannel";
 import { getPublicAppUrl } from "../supabase/env";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
@@ -316,6 +317,7 @@ export async function joinGame(request: Request) {
 
   if (playerError) throw playerError;
   await upsertGameData(admin, game.id);
+  await notifyGameChanged(admin, game.id);
 
   return { game, user };
 }
@@ -347,6 +349,7 @@ export async function startGame(gameId: string) {
 
   if (error) throw error;
   await upsertGameData(admin, game.id);
+  await notifyGameChanged(admin, game.id);
   return { game: data };
 }
 
@@ -373,6 +376,7 @@ export async function advanceGame(gameId: string) {
   const { data, error } = await admin.from("games").update(update).eq("id", game.id).select().single();
   if (error) throw error;
   await upsertGameData(admin, game.id);
+  await notifyGameChanged(admin, game.id);
   return { game: data, finished: advance.finished };
 }
 
@@ -483,6 +487,7 @@ export async function submitPrompt(request: Request) {
   const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
   await updateUserScores(admin, body.userId, scoreDelta);
   await upsertGameData(admin, game.id);
+  await notifyGameChanged(admin, game.id);
 
   return { submission, moderation, score };
 }
@@ -859,6 +864,20 @@ async function updateUserScores(admin: SupabaseAdmin, userId: string, scoreDelta
     .eq("id", userId);
 
   if (error) throw error;
+}
+
+// Tells every open screen of this game to refetch /state. Best effort: the
+// write already succeeded, and screens fall back to polling if they miss it.
+async function notifyGameChanged(admin: SupabaseAdmin, gameId: string) {
+  const channel = admin.channel(gameChannelTopic(gameId));
+  try {
+    const result = await channel.httpSend(GAME_CHANGED_EVENT, {}, { timeout: 3000 });
+    if (!result.success) console.error(`Game ${gameId} broadcast failed: ${result.status} ${result.error}`);
+  } catch (error) {
+    console.error(`Game ${gameId} broadcast failed`, error);
+  } finally {
+    await admin.removeChannel(channel);
+  }
 }
 
 async function upsertGameData(admin: SupabaseAdmin, gameId: string) {

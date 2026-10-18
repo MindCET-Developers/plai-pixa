@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { he } from "@/lib/i18n/he";
-import { createClient } from "@/lib/supabase/client";
-import { debounceRefresh, startFallbackPolling } from "@/lib/pixa/polling";
+import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import { StudentWaitingScreen } from "./StudentWaitingScreen";
 import { StudentPromptAttemptForm } from "./StudentPromptAttemptForm";
 import { StudentResultCard } from "./StudentResultCard";
@@ -33,24 +32,11 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
     }
 
     refresh();
-    const stopPolling = startFallbackPolling(refresh);
-    const onRealtime = debounceRefresh(refresh);
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`player-game-${player.gameId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "games", filter: `id=eq.${player.gameId}` },
-        onRealtime,
-      )
-      .subscribe();
+    const unsubscribe = subscribeToGameUpdates(player.gameId, refresh);
 
     return () => {
       cancelled = true;
-      stopPolling();
-      onRealtime.cancel();
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [player.gameId, player.userId]);
 

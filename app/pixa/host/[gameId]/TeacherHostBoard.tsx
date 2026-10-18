@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { he } from "@/lib/i18n/he";
-import { createClient } from "@/lib/supabase/client";
-import { debounceRefresh, startFallbackPolling } from "@/lib/pixa/polling";
+import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import { SubmissionsGallery } from "./SubmissionsGallery";
 import { Leaderboard } from "./Leaderboard";
 import { TeacherReviewModal } from "./TeacherReviewModal";
@@ -37,34 +36,11 @@ export function TeacherHostBoard({
       }
     }
 
-    const stopPolling = startFallbackPolling(refresh);
-    const onRealtime = debounceRefresh(refresh);
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`host-game-${gameId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "games", filter: `id=eq.${gameId}` },
-        onRealtime,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "submissions", filter: `game_id=eq.${gameId}` },
-        onRealtime,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${gameId}` },
-        onRealtime,
-      )
-      .subscribe();
+    const unsubscribe = subscribeToGameUpdates(gameId, refresh);
 
     return () => {
       cancelled = true;
-      stopPolling();
-      onRealtime.cancel();
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [gameId]);
 
