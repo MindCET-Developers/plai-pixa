@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { he } from "@/lib/i18n/he";
-import { createClient } from "@/lib/supabase/client";
-import { debounceRefresh, startFallbackPolling } from "@/lib/pixa/polling";
+import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import type { CreatedGame } from "./types";
 
 type Player = {
@@ -40,24 +39,7 @@ export function GameLobby({ game, code, joinUrl }: { game: CreatedGame; code: nu
     }
 
     refresh();
-    const stopPolling = startFallbackPolling(refresh);
-    const onRealtime = debounceRefresh(refresh);
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`game-players-${game.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${game.id}` },
-        onRealtime,
-      )
-      .subscribe();
-
-    return () => {
-      stopPolling();
-      onRealtime.cancel();
-      supabase.removeChannel(channel);
-    };
+    return subscribeToGameUpdates(game.id, refresh);
   }, [game.id]);
 
   async function onStart() {
