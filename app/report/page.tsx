@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getReportAccess, getUsageReport, REPORT_LAUNCH_DAY, type ReportAccess } from "@/lib/pixa/report";
+import { getVercelUsage, type VercelUsage } from "@/lib/pixa/vercelUsage";
 import { BarChart, DailyChart, SplitBar } from "./charts";
 
 export const metadata: Metadata = {
@@ -33,7 +34,7 @@ export default async function ReportPage() {
   const access = await getReportAccess();
   if (access.status !== "ok") return <ReportGate access={access} />;
 
-  const report = await getUsageReport();
+  const [report, vercel] = await Promise.all([getUsageReport(), getVercelUsage()]);
   const { summary: s, costs } = report;
   const devicesTotal = Object.values(report.devices).reduce((sum, value) => sum + value, 0);
   const hoursTotal = report.hours.reduce((sum, row) => sum + row.players, 0);
@@ -265,6 +266,10 @@ export default async function ReportPage() {
           )}
         </Section>
 
+        <Section title="שימוש ב-Vercel">
+          <VercelSection usage={vercel} />
+        </Section>
+
         <section className="grid gap-2 text-sm text-pixa-ink/70">
           <h2 className="text-lg font-extrabold text-pixa-ink">איך נספרו הנתונים</h2>
           <ul className="grid gap-1">
@@ -281,6 +286,49 @@ export default async function ReportPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+const gb = (bytes: number) => `${new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(bytes / 1e9)} GB`;
+
+function VercelSection({ usage }: { usage: VercelUsage }) {
+  if (usage.status === "not_configured") {
+    return (
+      <Card note="כדי להציג כאן את השימוש ב-Vercel, צריך להגדיר בפרויקט ב-Vercel את משתנה הסביבה VERCEL_USAGE_TOKEN עם טוקן שיש לו גישת קריאה לצוות." />
+    );
+  }
+  if (usage.status === "error") {
+    return <Card note="לא הצלחנו לקבל כרגע את נתוני השימוש מ-Vercel. נסו לרענן בעוד כמה דקות." />;
+  }
+
+  const { project, team } = usage;
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile label="בקשות" value={num.format(project.requests)} note={`${share(project.requests, team.requests)} מכל הצוות`} />
+        <Tile label="תעבורה יוצאת" value={gb(project.bandwidthBytes)} note={`${share(project.bandwidthBytes, team.bandwidthBytes)} מכל הצוות`} />
+        <Tile label="הפעלות של פונקציות" value={num.format(project.invocations)} note={`${share(project.invocations, team.invocations)} מכל הצוות`} />
+        <Tile
+          label="זמן ריצה של פונקציות"
+          value={`${new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(project.gbHours)} GB-h`}
+          note={`${share(project.gbHours, team.gbHours)} מכל הצוות`}
+        />
+      </div>
+      <Card title="בקשות לפי יום" note="של PIXA בלבד, ב-30 הימים האחרונים.">
+        <BarChart
+          labelEvery={5}
+          bars={usage.days.map((day) => ({
+            label: shortDate.format(asDate(day.day)),
+            value: day.requests,
+            title: `${shortDate.format(asDate(day.day))}: ${num.format(day.requests)} בקשות, ${gb(day.bandwidthBytes)}, ${num.format(day.invocations)} הפעלות`,
+          }))}
+        />
+      </Card>
+      <p className="text-sm text-pixa-ink/60">
+        30 הימים האחרונים. הצוות ב-Vercel בתוכנית Hobby החינמית, והמכסות החודשיות שלה משותפות לכל הפרויקטים בצוות. Vercel מדווח לכל יום את
+        הסכום של כל הצוות ואת החלק של כל פרויקט באחוזים שלמים, ולכן המספרים של PIXA מקורבים. מתעדכן פעם בשעה.
+      </p>
+    </>
   );
 }
 

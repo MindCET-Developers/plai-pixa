@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ReportLink } from "./report/ReportLink";
 
 const feedbackSchema = z.object({
   name: z.string().trim().max(120).optional(),
@@ -109,11 +110,14 @@ export default async function Home({
             <Link href="/" className="text-2xl font-extrabold tracking-normal">
               PIXA
             </Link>
-            <nav className="hidden items-center gap-6 text-sm font-bold text-white/80 md:flex">
-              <a href="#how">איך זה עובד</a>
-              <a href="#faq">שאלות נפוצות</a>
-              <a href="#feedback">יצירת קשר</a>
-            </nav>
+            <div className="flex items-center gap-6">
+              <nav className="hidden items-center gap-6 text-sm font-bold text-white/80 md:flex">
+                <a href="#how">איך זה עובד</a>
+                <a href="#faq">שאלות נפוצות</a>
+                <a href="#feedback">יצירת קשר</a>
+              </nav>
+              <ReportLink />
+            </div>
           </header>
 
           <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[1.05fr_0.8fr]">

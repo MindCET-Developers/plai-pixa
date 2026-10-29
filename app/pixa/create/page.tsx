@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { ReportLink } from "@/app/report/ReportLink";
 import { CreateGameWizard } from "./CreateGameWizard";
 
 export default async function PixaCreatePage({
@@ -22,6 +23,7 @@ export default async function PixaCreatePage({
               PIXA
             </Link>
             <div className="flex items-center gap-3">
+              <ReportLink />
               <span className="ltr-field hidden text-sm text-white/70 sm:inline">{user.email}</span>
               <form action="/auth/sign-out" method="post">
                 <button
