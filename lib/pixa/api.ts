@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AIJsonParseError } from "../ai/json";
 import { createAdminClient } from "../supabase/admin";
 import { createClient as createServerSupabaseClient } from "../supabase/server";
-import type { Database, Tables } from "../supabase/database.types";
+import type { Database, SubmissionFailureStage, Tables } from "../supabase/database.types";
 import {
   createTeacherImagePrompt,
   moderateAndTranslatePrompt,
@@ -428,10 +428,13 @@ export async function submitPrompt(request: Request) {
   const { data: bannedRows, error: bannedError } = await admin.from("banned_words").select("word_text");
   if (bannedError) throw bannedError;
 
-  const moderation = await moderateAndTranslatePrompt({
-    prompt: body.prompt,
-    bannedWords: (bannedRows ?? []).map((row) => row.word_text),
-  });
+  const failureContext = { gameId: game.id, userId: body.userId };
+  const moderation = await trackSubmissionStage(admin, failureContext, "moderation", () =>
+    moderateAndTranslatePrompt({
+      prompt: body.prompt,
+      bannedWords: (bannedRows ?? []).map((row) => row.word_text),
+    }),
+  );
 
   if (moderation.flag === "no") {
     await admin.from("bad_prompts").insert({
@@ -448,13 +451,17 @@ export async function submitPrompt(request: Request) {
     throw new ApiError("Only two attempts are allowed for this image.", 409);
   }
 
-  const generated = await generateImage(moderation.translated_prompt);
-  const score = await scoreStudentImage({
-    targetImageUrl: targetImage.url_text,
-    studentImageUrl: generated.imageURL,
-    originalPrompt: targetImage.prompt_text,
-    studentPrompt: moderation.translated_prompt,
-  });
+  const generated = await trackSubmissionStage(admin, failureContext, "image_generation", () =>
+    generateImage(moderation.translated_prompt),
+  );
+  const score = await trackSubmissionStage(admin, failureContext, "scoring", () =>
+    scoreStudentImage({
+      targetImageUrl: targetImage.url_text,
+      studentImageUrl: generated.imageURL,
+      originalPrompt: targetImage.prompt_text,
+      studentPrompt: moderation.translated_prompt,
+    }),
+  );
 
   const nextTry = computeNextTryNumber(existing?.try_number);
   const submissionPayload = {
@@ -476,13 +483,15 @@ export async function submitPrompt(request: Request) {
     try_number: nextTry,
   };
 
-  const { data: submission, error: upsertError } = await admin
-    .from("submissions")
-    .upsert(submissionPayload, { onConflict: "game_id,user_id,target_image_id" })
-    .select()
-    .single();
-
-  if (upsertError) throw upsertError;
+  const submission = await trackSubmissionStage(admin, failureContext, "save", async () => {
+    const { data, error } = await admin
+      .from("submissions")
+      .upsert(submissionPayload, { onConflict: "game_id,user_id,target_image_id" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  });
 
   const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
   await updateUserScores(admin, body.userId, scoreDelta);
@@ -727,12 +736,18 @@ export async function getAdminDashboard() {
     { count: playersCount },
     { data: reviews },
     { data: recentGames },
+    { count: failuresLastDay },
+    { count: failuresLastWeek },
+    { data: recentFailures },
   ] = await Promise.all([
     admin.from("games_data").select("id", { count: "exact", head: true }),
     admin.from("submissions").select("id", { count: "exact", head: true }),
     admin.from("game_players").select("id", { count: "exact", head: true }),
     admin.from("reviews").select("stars_number").not("stars_number", "is", null),
     admin.from("games_data").select("*").order("created_at", { ascending: false }).limit(20),
+    admin.from("submission_failures").select("id", { count: "exact", head: true }).gte("created_at", hoursAgo(24)),
+    admin.from("submission_failures").select("id", { count: "exact", head: true }).gte("created_at", hoursAgo(24 * 7)),
+    admin.from("submission_failures").select("*").order("created_at", { ascending: false }).limit(10),
   ]);
 
   const starsList = (reviews ?? []).map((row) => row.stars_number ?? 0);
@@ -745,7 +760,14 @@ export async function getAdminDashboard() {
     reviewsCount: starsList.length,
     avgStars,
     recentGames: recentGames ?? [],
+    failuresLastDay: failuresLastDay ?? 0,
+    failuresLastWeek: failuresLastWeek ?? 0,
+    recentFailures: recentFailures ?? [],
   };
+}
+
+function hoursAgo(hours: number) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
 async function generateUniqueGameCode(admin: SupabaseAdmin) {
@@ -878,6 +900,38 @@ async function notifyGameChanged(admin: SupabaseAdmin, gameId: string) {
   } finally {
     await admin.removeChannel(channel);
   }
+}
+
+// Runs one step of submitPrompt() and, if it fails unexpectedly, records the
+// failure for the admin dashboard before rethrowing. ApiErrors are deliberate
+// user-facing rejections, not outages. Recording is best effort so it never
+// masks the original error.
+async function trackSubmissionStage<T>(
+  admin: SupabaseAdmin,
+  context: { gameId: string; userId: string },
+  stage: SubmissionFailureStage,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof ApiError)) {
+      const { error: insertError } = await admin.from("submission_failures").insert({
+        game_id: context.gameId,
+        user_id: context.userId,
+        stage,
+        error_text: describeError(error).slice(0, 1000),
+      });
+      if (insertError) console.error("Could not record submission failure", insertError);
+    }
+    throw error;
+  }
+}
+
+function describeError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) return String(error.message);
+  return String(error);
 }
 
 async function upsertGameData(admin: SupabaseAdmin, gameId: string) {

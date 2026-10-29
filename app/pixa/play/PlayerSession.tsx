@@ -25,14 +25,15 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
         const body = await response.json();
         if (!cancelled && response.ok && body.ok) {
           setState(body.data as GameState);
+          return (body.data as GameState).game.progress_option_progress;
         }
       } catch {
         // polling fallback stays silent; realtime channel covers the common case
       }
     }
 
-    refresh();
     const unsubscribe = subscribeToGameUpdates(player.gameId, refresh);
+    void unsubscribe.refresh();
 
     return () => {
       cancelled = true;

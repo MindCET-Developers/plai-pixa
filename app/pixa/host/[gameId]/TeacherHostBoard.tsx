@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { he } from "@/lib/i18n/he";
 import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import { SubmissionsGallery } from "./SubmissionsGallery";
@@ -20,6 +20,7 @@ export function TeacherHostBoard({
   const [state, setState] = useState<GameState>(initialState);
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState("");
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +31,7 @@ export function TeacherHostBoard({
         const body = await response.json();
         if (!cancelled && response.ok && body.ok) {
           setState(body.data as GameState);
+          return (body.data as GameState).game.progress_option_progress;
         }
       } catch {
         // polling fallback stays silent; realtime channel covers the common case
@@ -37,9 +39,12 @@ export function TeacherHostBoard({
     }
 
     const unsubscribe = subscribeToGameUpdates(gameId, refresh);
+    refreshRef.current = unsubscribe.refresh;
+    void unsubscribe.refresh();
 
     return () => {
       cancelled = true;
+      refreshRef.current = null;
       unsubscribe();
     };
   }, [gameId]);
@@ -60,9 +65,7 @@ export function TeacherHostBoard({
       const body = await response.json();
       if (!response.ok || !body.ok) throw new Error(body.error ?? "לא הצלחנו לעבור לתמונה הבאה.");
 
-      const refreshed = await fetch(`/api/pixa/games/${gameId}/state`);
-      const refreshedBody = await refreshed.json();
-      if (refreshedBody.ok) setState(refreshedBody.data as GameState);
+      await refreshRef.current?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "לא הצלחנו לעבור לתמונה הבאה.");
     } finally {

@@ -6,6 +6,9 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+// Text column with a check constraint, not a Postgres enum.
+export type SubmissionFailureStage = "moderation" | "image_generation" | "scoring" | "save";
+
 export type Database = {
   public: {
     Enums: {
@@ -35,6 +38,26 @@ export type Database = {
           user_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["bad_prompts"]["Insert"]>;
+        Relationships: [];
+      };
+      submission_failures: {
+        Row: {
+          created_at: string;
+          error_text: string;
+          game_id: string | null;
+          id: string;
+          stage: SubmissionFailureStage;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          error_text: string;
+          game_id?: string | null;
+          id?: string;
+          stage: SubmissionFailureStage;
+          user_id?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["submission_failures"]["Insert"]>;
         Relationships: [];
       };
       banned_words: {

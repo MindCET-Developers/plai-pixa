@@ -141,6 +141,16 @@ export const he = {
     statPlayers: "שחקנים",
     statAvgStars: "דירוג ממוצע",
     recentGamesTitle: "משחקים אחרונים",
+    failuresAlert: "{count} הגשות נכשלו ב-24 השעות האחרונות. ייתכן שאחד משירותי ה-AI (Runware / OpenRouter) לא זמין או שנגמר בו הקרדיט.",
+    statFailuresWeek: "הגשות שנכשלו (7 ימים)",
+    recentFailuresTitle: "הגשות שנכשלו לאחרונה",
+    noFailures: "לא נרשמו הגשות שנכשלו.",
+    failureStages: {
+      moderation: "בדיקת תוכן ותרגום (OpenRouter)",
+      image_generation: "יצירת תמונה (Runware)",
+      scoring: "חישוב ציון (OpenRouter)",
+      save: "שמירה במסד הנתונים",
+    },
   },
 
   levels: {
