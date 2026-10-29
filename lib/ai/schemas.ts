@@ -45,6 +45,7 @@ export const runwareImageSchema = z.object({
   imageUUID: z.string().optional(),
   imageURL: z.string().url(),
   NSFWContent: z.boolean().optional(),
+  cost: z.number().optional(),
 });
 
 export type RunwareImage = z.infer<typeof runwareImageSchema>;

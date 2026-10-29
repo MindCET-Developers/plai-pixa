@@ -8,6 +8,7 @@ import {
   type ModerationResult,
   type ScoreResult,
 } from "./schemas";
+import { readCost, type AiOperation, type AiUsageSink } from "./usage";
 
 type TextContent = { type: "text"; text: string };
 type ImageContent = { type: "image_url"; image_url: { url: string } };
@@ -28,11 +29,15 @@ async function chatCompletion({
   model,
   jsonSchema,
   maxTokens = 500,
+  operation,
+  onUsage,
 }: {
   messages: ChatMessage[];
   model: string;
   jsonSchema?: JsonSchema;
   maxTokens?: number;
+  operation: AiOperation;
+  onUsage?: AiUsageSink;
 }) {
   const env = getOpenRouterEnv();
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -48,6 +53,8 @@ async function chatCompletion({
       messages,
       temperature: 0.2,
       max_tokens: maxTokens,
+      // Adds usage.cost (USD) to the response.
+      usage: { include: true },
       ...(jsonSchema
         ? {
             response_format: {
@@ -68,6 +75,8 @@ async function chatCompletion({
   }
 
   const json = await response.json();
+  // A completed request is billed even if its content turns out unusable, so record it first.
+  onUsage?.({ provider: "openrouter", operation, model, costUsd: readCost(json?.usage?.cost) });
   const content = json?.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
     throw new Error("OpenRouter response did not include text content.");
@@ -137,9 +146,11 @@ const translationJsonSchema = {
 export async function moderateAndTranslatePrompt({
   prompt,
   bannedWords,
+  onUsage,
 }: {
   prompt: string;
   bannedWords: string[];
+  onUsage?: AiUsageSink;
 }): Promise<ModerationResult> {
   const env = getOpenRouterEnv();
   const content = `This is a prompt to generate a picture. If the prompt contains content related to (${bannedWords.join(", ")}) then return a JSON object with:
@@ -161,6 +172,8 @@ Expected JSON output only - no extra text.`;
     model: env.textModel,
     jsonSchema: moderationJsonSchema,
     messages: [{ role: "user", content }],
+    operation: "moderation",
+    onUsage,
   });
 
   return parseJsonFromModel(response, moderationResultSchema);
@@ -171,11 +184,13 @@ export async function scoreStudentImage({
   studentImageUrl,
   originalPrompt,
   studentPrompt,
+  onUsage,
 }: {
   targetImageUrl: string;
   studentImageUrl: string;
   originalPrompt: string;
   studentPrompt: string;
+  onUsage?: AiUsageSink;
 }): Promise<ScoreResult> {
   const env = getOpenRouterEnv();
   const buildContent = (compact: boolean): Array<TextContent | ImageContent> => [
@@ -212,6 +227,8 @@ Student prompt: "${studentPrompt}"`,
       jsonSchema: scoreJsonSchema,
       messages: [{ role: "user", content: buildContent(attempt === 1) }],
       maxTokens: attempt === 0 ? 1800 : 2200,
+      operation: "scoring",
+      onUsage,
     });
 
     try {
@@ -225,15 +242,18 @@ Student prompt: "${studentPrompt}"`,
   throw new AIJsonParseError("AI response was not valid JSON after retry.");
 }
 
-export async function createTeacherImagePrompt({
-  topic,
-  grade,
-  description,
-}: {
-  topic: string;
-  grade: string;
-  description: string;
-}) {
+export async function createTeacherImagePrompt(
+  {
+    topic,
+    grade,
+    description,
+  }: {
+    topic: string;
+    grade: string;
+    description: string;
+  },
+  onUsage?: AiUsageSink,
+) {
   const env = getOpenRouterEnv();
   const content = `Write a prompt to create an image that fits this topic: ${topic} and this class: ${grade}.
 Here is a description for the picture: ${description}
@@ -245,6 +265,8 @@ The prompt must be in English. Return JSON only.`;
       jsonSchema: singlePromptJsonSchema,
       messages: [{ role: "user", content }],
       maxTokens: attempt === 0 ? 500 : 900,
+      operation: "teacher_prompt",
+      onUsage,
     });
 
     try {
@@ -263,6 +285,7 @@ export async function translateOrFixPrompt(prompt: string) {
   const response = await chatCompletion({
     model: env.textModel,
     jsonSchema: translationJsonSchema,
+    operation: "moderation",
     messages: [
       {
         role: "user",
@@ -273,4 +296,25 @@ Your response must be only the translation. If it is already English, fix spelli
   });
 
   return parseJsonFromModel(response, translationSchema).translated_prompt;
+}
+
+// Account-wide credit (USD) on the OpenRouter account behind OPENROUTER_API_KEY,
+// which other projects may share. Null when OpenRouter can't be reached.
+export async function getOpenRouterCredits() {
+  const env = getOpenRouterEnv();
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/credits", {
+      headers: { Authorization: `Bearer ${env.apiKey}` },
+      signal: AbortSignal.timeout(3000),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const json = await response.json();
+    const total = readCost(json?.data?.total_credits);
+    const used = readCost(json?.data?.total_usage);
+    if (total === null || used === null) return null;
+    return { total, used, remaining: total - used };
+  } catch {
+    return null;
+  }
 }

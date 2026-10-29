@@ -1,3 +1,5 @@
+import type { AiOperation, AiProvider } from "../ai/usage";
+
 export type Json =
   | string
   | number
@@ -8,6 +10,19 @@ export type Json =
 
 // Text column with a check constraint, not a Postgres enum.
 export type SubmissionFailureStage = "moderation" | "image_generation" | "scoring" | "save";
+
+// JSON returned by the ai_cost_summary() function; amounts in USD.
+export type AiCostSummary = {
+  last_day: number;
+  last_week: number;
+  last_month: number;
+  month_openrouter: number;
+  month_runware: number;
+  month_student_cost: number;
+  month_student_attempts: number;
+  month_unpriced_calls: number;
+  tracked_since: string | null;
+};
 
 export type Database = {
   public: {
@@ -38,6 +53,28 @@ export type Database = {
           user_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["bad_prompts"]["Insert"]>;
+        Relationships: [];
+      };
+      ai_usage: {
+        Row: {
+          cost_usd: number | null;
+          created_at: string;
+          game_id: string | null;
+          id: string;
+          model: string;
+          operation: AiOperation;
+          provider: AiProvider;
+        };
+        Insert: {
+          cost_usd?: number | null;
+          created_at?: string;
+          game_id?: string | null;
+          id?: string;
+          model: string;
+          operation: AiOperation;
+          provider: AiProvider;
+        };
+        Update: Partial<Database["public"]["Tables"]["ai_usage"]["Insert"]>;
         Relationships: [];
       };
       submission_failures: {
@@ -382,7 +419,12 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      ai_cost_summary: {
+        Args: Record<string, never>;
+        Returns: AiCostSummary;
+      };
+    };
     CompositeTypes: Record<string, never>;
   };
 };
