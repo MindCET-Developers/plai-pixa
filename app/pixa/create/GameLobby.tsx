@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { he } from "@/lib/i18n/he";
 import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import type { CreatedGame } from "./types";
+import type { GameProgress } from "../play/types";
 
 type Player = {
   id: string;
@@ -26,20 +27,26 @@ export function GameLobby({ game, code, joinUrl }: { game: CreatedGame; code: nu
   }, [joinUrl]);
 
   useEffect(() => {
+    let cancelled = false;
     async function refresh() {
       try {
         const response = await fetch(`/api/pixa/games/${game.id}/state`);
         const body = await response.json();
-        if (response.ok && body.ok) {
+        if (!cancelled && response.ok && body.ok) {
           setPlayers(body.data.players as Player[]);
+          return body.data.game.progress_option_progress as GameProgress;
         }
       } catch {
         // polling fallback stays silent; realtime channel covers the common case
       }
     }
 
-    refresh();
-    return subscribeToGameUpdates(game.id, refresh);
+    const unsubscribe = subscribeToGameUpdates(game.id, refresh);
+    void unsubscribe.refresh();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [game.id]);
 
   async function onStart() {
