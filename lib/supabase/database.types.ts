@@ -1,4 +1,5 @@
 import type { AiOperation, AiProvider } from "../ai/usage";
+import type { UsageReport } from "../pixa/report";
 
 export type Json =
   | string
@@ -423,6 +424,10 @@ export type Database = {
       ai_cost_summary: {
         Args: Record<string, never>;
         Returns: AiCostSummary;
+      };
+      usage_report: {
+        Args: { launch_day: string };
+        Returns: UsageReport;
       };
     };
     CompositeTypes: Record<string, never>;
