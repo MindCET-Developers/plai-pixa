@@ -75,11 +75,18 @@ export type UsageReport = {
   };
 };
 
+export type MonthlyCost = { month: string; attempts: number; tracked_usd: number | null; tracked_attempts: number };
+
 export async function getUsageReport() {
   const access = await getReportAccess();
   if (access.status !== "ok") throw new Error("Report access is required.");
 
-  const { data, error } = await createAdminClient().rpc("usage_report", { launch_day: REPORT_LAUNCH_DAY });
-  if (error) throw error;
-  return data;
+  const admin = createAdminClient();
+  const [report, monthly] = await Promise.all([
+    admin.rpc("usage_report", { launch_day: REPORT_LAUNCH_DAY }),
+    admin.rpc("monthly_costs"),
+  ]);
+  if (report.error) throw report.error;
+  if (monthly.error) throw monthly.error;
+  return { ...report.data, monthly: monthly.data };
 }

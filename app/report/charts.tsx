@@ -24,7 +24,7 @@ export function BarChart({ bars, labelEvery = 1 }: { bars: Bar[]; labelEvery?: n
       </div>
       <div className="mt-1 flex gap-1">
         {bars.map((bar, index) => (
-          <span key={bar.label} className="min-w-0 flex-1 truncate text-center text-[11px] text-pixa-ink/60">
+          <span key={bar.label} className="min-w-0 flex-1 text-center text-[11px] whitespace-nowrap text-pixa-ink/60">
             {index % labelEvery === 0 ? bar.label : ""}
           </span>
         ))}

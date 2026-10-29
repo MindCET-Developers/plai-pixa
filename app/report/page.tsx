@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getReportAccess, getUsageReport, REPORT_LAUNCH_DAY, type ReportAccess } from "@/lib/pixa/report";
+import { getReportAccess, getUsageReport, REPORT_LAUNCH_DAY, type MonthlyCost, type ReportAccess } from "@/lib/pixa/report";
 import { getVercelUsage, type VercelUsage } from "@/lib/pixa/vercelUsage";
 import { BarChart, DailyChart, SplitBar } from "./charts";
 
@@ -249,6 +249,9 @@ export default async function ReportPage() {
             כל ניסיון.
           </p>
 
+          <h3 className="mt-2 text-lg font-extrabold">לפי חודש</h3>
+          <MonthlyCosts months={report.monthly} />
+
           <h3 className="mt-2 text-lg font-extrabold">מאז תחילת המעקב</h3>
           {costs.tracked_since ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -289,6 +292,61 @@ export default async function ReportPage() {
   );
 }
 
+const monthName = new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric", timeZone: "UTC" });
+const dayMonth = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "UTC" });
+
+// Spend per month: the cost recorded in ai_usage where there is one, otherwise
+// student attempts times the measured cost per attempt. The current month
+// also gets a projection to month end at its pace so far.
+function MonthlyCosts({ months }: { months: MonthlyCost[] }) {
+  const now = new Date();
+  const currentMonth = `${now.toISOString().slice(0, 7)}-01`;
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const monthFraction = now.getUTCDate() / daysInMonth;
+
+  const rows = months.map((row) => {
+    // Months tracked only partly mix both sources: recorded cost plus an estimate for the untracked attempts.
+    const untracked = Math.max(0, row.attempts - row.tracked_attempts);
+    const cost = (row.tracked_usd ?? 0) + untracked * PRE_TRACKING_COSTS.perAttempt;
+    const basis = row.tracked_usd === null ? "הערכה" : untracked > 0 ? "חלקי + הערכה" : "נרשם בפועל";
+    const isCurrent = row.month.slice(0, 10) === currentMonth;
+    return { ...row, cost, basis, isCurrent, projected: isCurrent ? cost / monthFraction : null };
+  });
+
+  return (
+    <div className="min-w-0 rounded-2xl border border-pixa-ink/10 bg-white p-5">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] border-collapse text-sm tabular-nums">
+          <thead>
+            <tr className="text-right text-xs text-pixa-ink/60">
+              {["חודש", "ניסיונות של תלמידים", "עלות AI", "מקור", "צפי לסוף החודש"].map((heading) => (
+                <th key={heading} scope="col" className="border-b border-pixa-ink/15 px-3 py-2 font-bold">
+                  {heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.month} className={row.isCurrent ? "font-bold" : ""}>
+                <td className="border-b border-pixa-ink/10 px-3 py-2">{monthName.format(asDate(row.month))}</td>
+                <td className="border-b border-pixa-ink/10 px-3 py-2">{num.format(row.attempts)}</td>
+                <td className="border-b border-pixa-ink/10 px-3 py-2">{usd(row.cost)}</td>
+                <td className="border-b border-pixa-ink/10 px-3 py-2 font-normal text-pixa-ink/60">{row.basis}</td>
+                <td className="border-b border-pixa-ink/10 px-3 py-2">{row.projected === null ? "—" : usd(row.projected)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-sm text-pixa-ink/60">
+        הערכה היא מספר הניסיונות כפול {usd(PRE_TRACKING_COSTS.perAttempt, 4)} לניסיון. היא נמוכה מהחיוב בפועל, כי היא לא כוללת תמונות של מורים,
+        ניסיונות שנכשלו, ועד ההשקה את האפליקציה הקודמת. Vercel לא עולה כסף כרגע (תוכנית Hobby).
+      </p>
+    </div>
+  );
+}
+
 const gb = (bytes: number) => `${new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(bytes / 1e9)} GB`;
 
 function VercelSection({ usage }: { usage: VercelUsage }) {
@@ -318,7 +376,7 @@ function VercelSection({ usage }: { usage: VercelUsage }) {
         <BarChart
           labelEvery={5}
           bars={usage.days.map((day) => ({
-            label: shortDate.format(asDate(day.day)),
+            label: dayMonth.format(asDate(day.day)),
             value: day.requests,
             title: `${shortDate.format(asDate(day.day))}: ${num.format(day.requests)} בקשות, ${gb(day.bandwidthBytes)}, ${num.format(day.invocations)} הפעלות`,
           }))}
