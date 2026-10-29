@@ -23,7 +23,13 @@ export default async function AdminDashboardPage() {
         <div className="glass-card border border-white/20 p-6 text-white sm:p-8">
           <h1 className="text-2xl font-extrabold">{he.admin.dashboardTitle}</h1>
 
-          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {stats.failuresLastDay > 0 && (
+            <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
+              {he.admin.failuresAlert.replace("{count}", String(stats.failuresLastDay))}
+            </p>
+          )}
+
+          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-5">
             <Stat label={he.admin.statGames} value={stats.gamesCount} />
             <Stat label={he.admin.statSubmissions} value={stats.submissionsCount} />
             <Stat label={he.admin.statPlayers} value={stats.playersCount} />
@@ -31,7 +37,38 @@ export default async function AdminDashboardPage() {
               label={he.admin.statAvgStars}
               value={stats.avgStars !== null ? stats.avgStars.toFixed(1) : "—"}
             />
+            <Stat label={he.admin.statFailuresWeek} value={stats.failuresLastWeek} />
           </div>
+
+          <h2 className="mt-8 text-lg font-extrabold">{he.admin.recentFailuresTitle}</h2>
+          {stats.recentFailures.length === 0 ? (
+            <p className="mt-3 text-sm text-white/70">{he.admin.noFailures}</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-sm">
+                <thead>
+                  <tr className="text-right text-xs text-white/60">
+                    <th className="border-b border-white/10 px-3 py-2">מתי</th>
+                    <th className="border-b border-white/10 px-3 py-2">שלב</th>
+                    <th className="border-b border-white/10 px-3 py-2">שגיאה</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.recentFailures.map((failure) => (
+                    <tr key={failure.id}>
+                      <td className="ltr-field whitespace-nowrap border-b border-white/5 px-3 py-2">
+                        {formatIsraelTime(failure.created_at)}
+                      </td>
+                      <td className="border-b border-white/5 px-3 py-2">{he.admin.failureStages[failure.stage]}</td>
+                      <td className="ltr-field max-w-xs truncate border-b border-white/5 px-3 py-2" title={failure.error_text}>
+                        {failure.error_text}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <h2 className="mt-8 text-lg font-extrabold">{he.admin.recentGamesTitle}</h2>
           {stats.recentGames.length === 0 ? (
@@ -68,6 +105,10 @@ export default async function AdminDashboardPage() {
       </section>
     </main>
   );
+}
+
+function formatIsraelTime(iso: string) {
+  return new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "short", timeStyle: "short" });
 }
 
 function Stat({ label, value }: { label: string; value: number | string }) {
