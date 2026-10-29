@@ -5,11 +5,13 @@ import { createClient as createServerSupabaseClient } from "../supabase/server";
 import type { Database, SubmissionFailureStage, Tables } from "../supabase/database.types";
 import {
   createTeacherImagePrompt,
+  getOpenRouterCredits,
   moderateAndTranslatePrompt,
   scoreStudentImage,
   translateOrFixPrompt,
 } from "../ai/openrouter";
 import { generateImage } from "../ai/runware";
+import type { AiUsageEntry } from "../ai/usage";
 import { computeAdvance, computeNextTryNumber, computeScoreDelta, isOutOfAttempts } from "./gameLogic";
 import { GAME_CHANGED_EVENT, gameChannelTopic } from "./gameChannel";
 import { getPublicAppUrl } from "../supabase/env";
@@ -428,77 +430,85 @@ export async function submitPrompt(request: Request) {
   const { data: bannedRows, error: bannedError } = await admin.from("banned_words").select("word_text");
   if (bannedError) throw bannedError;
 
-  const failureContext = { gameId: game.id, userId: body.userId };
-  const moderation = await trackSubmissionStage(admin, failureContext, "moderation", () =>
-    moderateAndTranslatePrompt({
-      prompt: body.prompt,
-      bannedWords: (bannedRows ?? []).map((row) => row.word_text),
-    }),
-  );
+  // Every paid AI call is logged, including those of attempts that fail later on.
+  const usage = createAiUsageLog(admin, game.id);
+  try {
+    const failureContext = { gameId: game.id, userId: body.userId };
+    const moderation = await trackSubmissionStage(admin, failureContext, "moderation", () =>
+      moderateAndTranslatePrompt({
+        prompt: body.prompt,
+        bannedWords: (bannedRows ?? []).map((row) => row.word_text),
+        onUsage: usage.record,
+      }),
+    );
 
-  if (moderation.flag === "no") {
-    await admin.from("bad_prompts").insert({
+    if (moderation.flag === "no") {
+      await admin.from("bad_prompts").insert({
+        game_id: game.id,
+        user_id: body.userId,
+        prompt_text: body.prompt,
+        reason_text: "OpenRouter moderation returned flag=no",
+      });
+      throw new ApiError("יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב.", 422);
+    }
+
+    const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
+    if (isOutOfAttempts(existing?.try_number)) {
+      throw new ApiError("Only two attempts are allowed for this image.", 409);
+    }
+
+    const generated = await trackSubmissionStage(admin, failureContext, "image_generation", () =>
+      generateImage(moderation.translated_prompt, { operation: "student_image", onUsage: usage.record }),
+    );
+    const score = await trackSubmissionStage(admin, failureContext, "scoring", () =>
+      scoreStudentImage({
+        targetImageUrl: targetImage.url_text,
+        studentImageUrl: generated.imageURL,
+        originalPrompt: targetImage.prompt_text,
+        studentPrompt: moderation.translated_prompt,
+        onUsage: usage.record,
+      }),
+    );
+
+    const nextTry = computeNextTryNumber(existing?.try_number);
+    const submissionPayload = {
       game_id: game.id,
       user_id: body.userId,
-      prompt_text: body.prompt,
-      reason_text: "OpenRouter moderation returned flag=no",
+      target_image_id: game.current_image_id,
+      image_id: null,
+      sent_prompt_text: body.prompt,
+      revised_prompt_text: nextTry > 1 ? body.prompt : null,
+      translated_prompt_text: moderation.translated_prompt,
+      generated_image_url_text: generated.imageURL,
+      tip_text: score.feedback,
+      score_text: score.score,
+      score1_number: Number(score.score),
+      image_comparison_score: score.image_comparison_score,
+      prompt_comparison_score: score.prompt_comparison_score,
+      score_breakdown_text: score.score_breakdown,
+      ai_raw_json: score,
+      try_number: nextTry,
+    };
+
+    const submission = await trackSubmissionStage(admin, failureContext, "save", async () => {
+      const { data, error } = await admin
+        .from("submissions")
+        .upsert(submissionPayload, { onConflict: "game_id,user_id,target_image_id" })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
     });
-    throw new ApiError("יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב.", 422);
+
+    const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
+    await updateUserScores(admin, body.userId, scoreDelta);
+    await upsertGameData(admin, game.id);
+    await notifyGameChanged(admin, game.id);
+
+    return { submission, moderation, score };
+  } finally {
+    await usage.flush();
   }
-
-  const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
-  if (isOutOfAttempts(existing?.try_number)) {
-    throw new ApiError("Only two attempts are allowed for this image.", 409);
-  }
-
-  const generated = await trackSubmissionStage(admin, failureContext, "image_generation", () =>
-    generateImage(moderation.translated_prompt),
-  );
-  const score = await trackSubmissionStage(admin, failureContext, "scoring", () =>
-    scoreStudentImage({
-      targetImageUrl: targetImage.url_text,
-      studentImageUrl: generated.imageURL,
-      originalPrompt: targetImage.prompt_text,
-      studentPrompt: moderation.translated_prompt,
-    }),
-  );
-
-  const nextTry = computeNextTryNumber(existing?.try_number);
-  const submissionPayload = {
-    game_id: game.id,
-    user_id: body.userId,
-    target_image_id: game.current_image_id,
-    image_id: null,
-    sent_prompt_text: body.prompt,
-    revised_prompt_text: nextTry > 1 ? body.prompt : null,
-    translated_prompt_text: moderation.translated_prompt,
-    generated_image_url_text: generated.imageURL,
-    tip_text: score.feedback,
-    score_text: score.score,
-    score1_number: Number(score.score),
-    image_comparison_score: score.image_comparison_score,
-    prompt_comparison_score: score.prompt_comparison_score,
-    score_breakdown_text: score.score_breakdown,
-    ai_raw_json: score,
-    try_number: nextTry,
-  };
-
-  const submission = await trackSubmissionStage(admin, failureContext, "save", async () => {
-    const { data, error } = await admin
-      .from("submissions")
-      .upsert(submissionPayload, { onConflict: "game_id,user_id,target_image_id" })
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  });
-
-  const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
-  await updateUserScores(admin, body.userId, scoreDelta);
-  await upsertGameData(admin, game.id);
-  await notifyGameChanged(admin, game.id);
-
-  return { submission, moderation, score };
 }
 
 export async function submitReview(request: Request) {
@@ -525,8 +535,7 @@ export async function submitReview(request: Request) {
 export async function generateTeacherImage(request: Request) {
   const body = await parseRequest(generateTeacherImageSchema, request);
   const { admin, pixaUser } = await requireTeacher();
-  const prompt = await createTeacherImagePrompt(body);
-  const image = await generateImage(prompt);
+  const { prompt, image } = await createTeacherImage(admin, body);
 
   const { data, error } = await admin
     .from("images")
@@ -640,8 +649,7 @@ export async function adminCreateImage(request: Request) {
 export async function adminGenerateImage(request: Request) {
   const body = await parseRequest(adminGenerateImageSchema, request);
   const { admin, pixaUser } = await requireAdmin();
-  const prompt = await createTeacherImagePrompt(body);
-  const image = await generateImage(prompt);
+  const { prompt, image } = await createTeacherImage(admin, body);
 
   const { data, error } = await admin
     .from("images")
@@ -739,6 +747,8 @@ export async function getAdminDashboard() {
     { count: failuresLastDay },
     { count: failuresLastWeek },
     { data: recentFailures },
+    { data: costs, error: costsError },
+    openRouterCredits,
   ] = await Promise.all([
     admin.from("games_data").select("id", { count: "exact", head: true }),
     admin.from("submissions").select("id", { count: "exact", head: true }),
@@ -748,7 +758,11 @@ export async function getAdminDashboard() {
     admin.from("submission_failures").select("id", { count: "exact", head: true }).gte("created_at", hoursAgo(24)),
     admin.from("submission_failures").select("id", { count: "exact", head: true }).gte("created_at", hoursAgo(24 * 7)),
     admin.from("submission_failures").select("*").order("created_at", { ascending: false }).limit(10),
+    admin.rpc("ai_cost_summary"),
+    getOpenRouterCredits(),
   ]);
+
+  if (costsError) console.error("Could not load AI cost summary", costsError);
 
   const starsList = (reviews ?? []).map((row) => row.stars_number ?? 0);
   const avgStars = starsList.length > 0 ? starsList.reduce((sum, value) => sum + value, 0) / starsList.length : null;
@@ -763,6 +777,8 @@ export async function getAdminDashboard() {
     failuresLastDay: failuresLastDay ?? 0,
     failuresLastWeek: failuresLastWeek ?? 0,
     recentFailures: recentFailures ?? [],
+    costs: costs ?? null,
+    openRouterCredits,
   };
 }
 
@@ -900,6 +916,42 @@ async function notifyGameChanged(admin: SupabaseAdmin, gameId: string) {
   } finally {
     await admin.removeChannel(channel);
   }
+}
+
+// Writes the image prompt and generates the image for a teacher or admin, logging both paid calls.
+async function createTeacherImage(admin: SupabaseAdmin, input: Parameters<typeof createTeacherImagePrompt>[0]) {
+  const usage = createAiUsageLog(admin, null);
+  try {
+    const prompt = await createTeacherImagePrompt(input, usage.record);
+    const image = await generateImage(prompt, { operation: "teacher_image", onUsage: usage.record });
+    return { prompt, image };
+  } finally {
+    await usage.flush();
+  }
+}
+
+// Collects AI usage in memory during a request and writes it in one insert at
+// the end. Best effort: a failed write is logged and never fails the request.
+function createAiUsageLog(admin: SupabaseAdmin, gameId: string | null) {
+  const entries: AiUsageEntry[] = [];
+  return {
+    record: (entry: AiUsageEntry) => {
+      entries.push(entry);
+    },
+    async flush() {
+      if (entries.length === 0) return;
+      const { error } = await admin.from("ai_usage").insert(
+        entries.map((entry) => ({
+          provider: entry.provider,
+          operation: entry.operation,
+          model: entry.model,
+          cost_usd: entry.costUsd,
+          game_id: gameId,
+        })),
+      );
+      if (error) console.error("Could not record AI usage", error);
+    },
+  };
 }
 
 // Runs one step of submitPrompt() and, if it fails unexpectedly, records the
