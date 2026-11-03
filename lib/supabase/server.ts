@@ -13,9 +13,16 @@ export async function createClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          cookieStore.set(name, value, options);
-        });
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // Next.js only allows cookie writes from a Server Action or Route
+          // Handler, so a Server Component render throws here when Supabase
+          // refreshes or clears the session. The middleware does that write on
+          // every request to a page that reads the user, so dropping it is safe.
+        }
       },
     },
   });

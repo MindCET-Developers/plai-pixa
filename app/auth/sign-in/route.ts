@@ -9,13 +9,10 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: {
-      redirectTo: redirectTo.toString(),
-      queryParams: {
-        access_type: "offline",
-        prompt: "consent",
-      },
-    },
+    // No offline access: the app only reads the Google address, and asking for
+    // a refresh token puts Google's own tokens in the session cookie, which
+    // grows it past the single-cookie limit and forces it to be chunked.
+    options: { redirectTo: redirectTo.toString() },
   });
 
   if (error) {
