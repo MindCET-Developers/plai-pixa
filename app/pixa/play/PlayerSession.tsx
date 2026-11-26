@@ -12,7 +12,23 @@ import type { GameState, StoredPlayer, SubmissionRow } from "./types";
 export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit: () => void }) {
   const [state, setState] = useState<GameState | null>(null);
   const [localSubmission, setLocalSubmission] = useState<SubmissionRow | null>(null);
+  const [keptFirst, setKeptFirst] = useState(false);
   const roundRef = useRef<string | null>(null);
+
+  function keepKeyFor(imageId: string) {
+    return `pixa-keep:${player.gameId}:${imageId}`;
+  }
+
+  function setKept(value: boolean) {
+    setKeptFirst(value);
+    if (!currentImageId) return;
+    try {
+      if (value) window.localStorage.setItem(keepKeyFor(currentImageId), "1");
+      else window.localStorage.removeItem(keepKeyFor(currentImageId));
+    } catch {
+      // storage can be blocked; the choice then lasts only until the page reloads
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -48,8 +64,17 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
     if (roundRef.current !== currentImageId) {
       roundRef.current = currentImageId;
       setLocalSubmission(null);
+      let kept = false;
+      try {
+        kept = currentImageId
+          ? window.localStorage.getItem(`pixa-keep:${player.gameId}:${currentImageId}`) === "1"
+          : false;
+      } catch {
+        kept = false;
+      }
+      setKeptFirst(kept);
     }
-  }, [currentImageId]);
+  }, [currentImageId, player.gameId]);
 
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4">
@@ -110,6 +135,10 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
       );
     }
 
+    if (submission.try_number < 2 && keptFirst) {
+      return <StudentResultCard submission={submission} final onReopen={() => setKept(false)} />;
+    }
+
     if (submission.try_number < 2) {
       return (
         <div className="w-full space-y-4">
@@ -120,6 +149,7 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
             mode="improve"
             initialPrompt={submission.sent_prompt_text}
             onSubmitted={setLocalSubmission}
+            onKeepFirst={() => setKept(true)}
           />
         </div>
       );

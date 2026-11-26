@@ -430,6 +430,12 @@ export async function submitPrompt(request: Request) {
   const { data: bannedRows, error: bannedError } = await admin.from("banned_words").select("word_text");
   if (bannedError) throw bannedError;
 
+  // Reject an exhausted student before any paid AI call is made.
+  const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
+  if (isOutOfAttempts(existing?.try_number)) {
+    throw new ApiError("Only two attempts are allowed for this image.", 409);
+  }
+
   // Every paid AI call is logged, including those of attempts that fail later on.
   const usage = createAiUsageLog(admin, game.id);
   try {
@@ -450,11 +456,6 @@ export async function submitPrompt(request: Request) {
         reason_text: "OpenRouter moderation returned flag=no",
       });
       throw new ApiError("יש תוכן לא ראוי בפרומפט, תקן אותו ונסה שוב.", 422);
-    }
-
-    const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
-    if (isOutOfAttempts(existing?.try_number)) {
-      throw new ApiError("Only two attempts are allowed for this image.", 409);
     }
 
     const generated = await trackSubmissionStage(admin, failureContext, "image_generation", () =>

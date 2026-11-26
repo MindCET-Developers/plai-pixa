@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export const LAST_UPDATED = "10 בספטמבר 2026";
+export const LAST_UPDATED = "26 בנובמבר 2026";
 
 export function LegalPage({
   title,

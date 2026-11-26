@@ -1,7 +1,15 @@
 import { he } from "@/lib/i18n/he";
 import type { SubmissionRow } from "./types";
 
-export function StudentResultCard({ submission, final }: { submission: SubmissionRow; final: boolean }) {
+export function StudentResultCard({
+  submission,
+  final,
+  onReopen,
+}: {
+  submission: SubmissionRow;
+  final: boolean;
+  onReopen?: () => void;
+}) {
   return (
     <div className="glass-card w-full max-w-md border border-white/20 p-5 text-white sm:p-6">
       <p className="text-sm font-bold text-white/70">{he.play.firstReady}</p>
@@ -30,6 +38,16 @@ export function StudentResultCard({ submission, final }: { submission: Submissio
 
       {final ? (
         <p className="mt-4 text-center text-sm text-white/65">ממתינים לתמונה הבאה...</p>
+      ) : null}
+
+      {final && onReopen ? (
+        <button
+          type="button"
+          onClick={onReopen}
+          className="mt-3 w-full text-center text-sm font-bold text-white/70 underline"
+        >
+          {he.play.changedMyMind}
+        </button>
       ) : null}
     </div>
   );
