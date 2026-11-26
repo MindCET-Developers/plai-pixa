@@ -36,3 +36,13 @@ export function isOutOfAttempts(existingTryNumber: number | undefined | null, ma
 export function computeScoreDelta(newScore: number, previousScore: number | undefined | null) {
   return newScore - (previousScore ?? 0);
 }
+
+/**
+ * Two prompts count as the same submission when only whitespace differs, so the
+ * student cannot spend their second attempt on the exact text they already sent.
+ */
+export function isSamePrompt(prompt: string, previousPrompt: string | undefined | null) {
+  if (previousPrompt == null) return false;
+  const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
+  return normalize(prompt) === normalize(previousPrompt);
+}

@@ -4,6 +4,7 @@ import {
   computeNextTryNumber,
   computeScoreDelta,
   isOutOfAttempts,
+  isSamePrompt,
 } from "./gameLogic";
 
 describe("gameLogic", () => {
@@ -95,6 +96,25 @@ describe("gameLogic", () => {
       expect(computeScoreDelta(0, undefined)).toBe(0);
       expect(computeScoreDelta(0, 50)).toBe(-50);
       expect(computeScoreDelta(50, 0)).toBe(50);
+    });
+  });
+
+  describe("isSamePrompt", () => {
+    it("treats identical text as the same", () => {
+      expect(isSamePrompt("כלב על החוף", "כלב על החוף")).toBe(true);
+    });
+
+    it("ignores surrounding and repeated whitespace", () => {
+      expect(isSamePrompt("  כלב   על\nהחוף ", "כלב על החוף")).toBe(true);
+    });
+
+    it("detects a real change", () => {
+      expect(isSamePrompt("כלב גדול על החוף", "כלב על החוף")).toBe(false);
+    });
+
+    it("is never the same when there is no previous prompt", () => {
+      expect(isSamePrompt("כלב", undefined)).toBe(false);
+      expect(isSamePrompt("כלב", null)).toBe(false);
     });
   });
 });
