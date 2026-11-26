@@ -46,3 +46,19 @@ export function isSamePrompt(prompt: string, previousPrompt: string | undefined 
   const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
   return normalize(prompt) === normalize(previousPrompt);
 }
+
+export type AttemptScore = { tryNumber: number; score: number };
+
+/**
+ * Which attempt counts right after a new one is scored: the higher score wins,
+ * and a tie goes to the newer attempt. The student can still switch afterwards.
+ */
+export function pickDefaultAttempt(previous: AttemptScore | null | undefined, next: AttemptScore) {
+  if (!previous) return next.tryNumber;
+  return next.score >= previous.score ? next.tryNumber : previous.tryNumber;
+}
+
+/** Rows that predate stored attempts have no selected_try_number; they mirror their latest try. */
+export function effectiveSelectedTry(row: { selected_try_number?: number | null; try_number: number }) {
+  return row.selected_try_number ?? row.try_number;
+}

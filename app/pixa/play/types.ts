@@ -41,8 +41,19 @@ export type SubmissionRow = {
   user_id: string;
   target_image_id: string;
   try_number: number;
+  selected_try_number: number | null;
   tip_text: string | null;
   score_text: string | null;
+  generated_image_url_text: string | null;
+  sent_prompt_text: string;
+};
+
+export type AttemptRow = {
+  id: string;
+  target_image_id: string;
+  try_number: number;
+  score_text: string | null;
+  tip_text: string | null;
   generated_image_url_text: string | null;
   sent_prompt_text: string;
 };
@@ -52,4 +63,5 @@ export type GameState = {
   images: GameImageWithImage[];
   players: PlayerRow[];
   submissions: SubmissionRow[];
+  attempts?: AttemptRow[];
 };

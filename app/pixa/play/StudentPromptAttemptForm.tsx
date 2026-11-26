@@ -25,7 +25,6 @@ export function StudentPromptAttemptForm({
 }) {
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [clearedText, setClearedText] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const genericSubmitError = "לא הצלחנו ליצור תמונה כרגע. נסו שוב בעוד רגע.";
@@ -36,7 +35,6 @@ export function StudentPromptAttemptForm({
   const canSubmit = prompt.trim().length > 0 && !unchanged && !submitting;
 
   const speech = useSpeechToText((text) => {
-    setConfirming(false);
     setClearedText(null);
     setPrompt((previous) => (previous.trim() ? `${previous.trimEnd()} ${text}` : text));
   });
@@ -44,14 +42,12 @@ export function StudentPromptAttemptForm({
   function changePrompt(value: string) {
     setPrompt(value);
     setClearedText(null);
-    setConfirming(false);
   }
 
   function clearAll() {
     speech.abort();
     setClearedText(prompt);
     setPrompt("");
-    setConfirming(false);
   }
 
   function undoClear() {
@@ -83,18 +79,11 @@ export function StudentPromptAttemptForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : genericSubmitError);
       setSubmitting(false);
-      setConfirming(false);
     }
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
-    // The second attempt replaces the first image and score, so ask before sending it.
-    if (improving && !confirming) {
-      setConfirming(true);
-      return;
-    }
     void send();
   }
 
@@ -179,28 +168,13 @@ export function StudentPromptAttemptForm({
           </p>
         ) : null}
 
-        {confirming ? (
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="min-h-12 rounded-lg bg-pixa-pink px-3 py-3 text-base font-extrabold text-white transition hover:bg-[#c9365d] disabled:opacity-55"
-            >
-              {he.play.confirmReplace}
-            </button>
-            <button type="button" onClick={() => setConfirming(false)} className={secondaryButton}>
-              {he.play.backToEdit}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="mt-4 min-h-12 w-full rounded-lg bg-pixa-pink px-5 py-3 text-base font-extrabold text-white transition hover:bg-[#c9365d] disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {improving ? he.play.stepImprove : he.play.stepCreate}
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="mt-4 min-h-12 w-full rounded-lg bg-pixa-pink px-5 py-3 text-base font-extrabold text-white transition hover:bg-[#c9365d] disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {improving ? he.play.stepImprove : he.play.stepCreate}
+        </button>
 
         {unchanged && !submitting ? (
           <p className="mt-2 text-center text-xs text-white/70">{he.play.unchangedHint}</p>

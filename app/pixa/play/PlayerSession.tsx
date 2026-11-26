@@ -5,6 +5,7 @@ import { he } from "@/lib/i18n/he";
 import { subscribeToGameUpdates } from "@/lib/pixa/polling";
 import { StudentWaitingScreen } from "./StudentWaitingScreen";
 import { StudentPromptAttemptForm } from "./StudentPromptAttemptForm";
+import { StudentAttemptPicker } from "./StudentAttemptPicker";
 import { StudentResultCard } from "./StudentResultCard";
 import { StudentReviewModal } from "./StudentReviewModal";
 import type { GameState, StoredPlayer, SubmissionRow } from "./types";
@@ -152,6 +153,19 @@ export function PlayerSession({ player, onExit }: { player: StoredPlayer; onExit
             onKeepFirst={() => setKept(true)}
           />
         </div>
+      );
+    }
+
+    const roundAttempts = (state?.attempts ?? []).filter((attempt) => attempt.target_image_id === currentImageId);
+    if (roundAttempts.length >= 2) {
+      return (
+        <StudentAttemptPicker
+          gameId={player.gameId}
+          userId={player.userId}
+          submission={submission}
+          attempts={roundAttempts}
+          onChanged={setLocalSubmission}
+        />
       );
     }
 

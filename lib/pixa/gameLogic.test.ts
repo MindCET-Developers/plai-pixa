@@ -5,6 +5,8 @@ import {
   computeScoreDelta,
   isOutOfAttempts,
   isSamePrompt,
+  pickDefaultAttempt,
+  effectiveSelectedTry,
 } from "./gameLogic";
 
 describe("gameLogic", () => {
@@ -115,6 +117,36 @@ describe("gameLogic", () => {
     it("is never the same when there is no previous prompt", () => {
       expect(isSamePrompt("כלב", undefined)).toBe(false);
       expect(isSamePrompt("כלב", null)).toBe(false);
+    });
+  });
+
+  describe("pickDefaultAttempt", () => {
+    it("selects the only attempt when there is no previous one", () => {
+      expect(pickDefaultAttempt(null, { tryNumber: 1, score: 40 })).toBe(1);
+      expect(pickDefaultAttempt(undefined, { tryNumber: 1, score: 0 })).toBe(1);
+    });
+
+    it("keeps the first attempt when the second scored lower", () => {
+      expect(pickDefaultAttempt({ tryNumber: 1, score: 80 }, { tryNumber: 2, score: 50 })).toBe(1);
+    });
+
+    it("moves to the second attempt when it scored higher", () => {
+      expect(pickDefaultAttempt({ tryNumber: 1, score: 50 }, { tryNumber: 2, score: 80 })).toBe(2);
+    });
+
+    it("prefers the newer attempt on a tie", () => {
+      expect(pickDefaultAttempt({ tryNumber: 1, score: 60 }, { tryNumber: 2, score: 60 })).toBe(2);
+    });
+  });
+
+  describe("effectiveSelectedTry", () => {
+    it("uses the stored selection", () => {
+      expect(effectiveSelectedTry({ selected_try_number: 1, try_number: 2 })).toBe(1);
+    });
+
+    it("falls back to the latest try for legacy rows", () => {
+      expect(effectiveSelectedTry({ selected_try_number: null, try_number: 2 })).toBe(2);
+      expect(effectiveSelectedTry({ try_number: 1 })).toBe(1);
     });
   });
 });
