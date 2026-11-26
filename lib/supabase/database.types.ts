@@ -272,8 +272,49 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["reviews"]["Insert"]>;
         Relationships: [];
       };
+      submission_attempts: {
+        Row: {
+          ai_raw_json: Json | null;
+          created_at: string;
+          game_id: string;
+          generated_image_url_text: string | null;
+          id: string;
+          image_comparison_score: number | null;
+          prompt_comparison_score: number | null;
+          score1_number: number;
+          score_breakdown_text: string | null;
+          score_text: string | null;
+          sent_prompt_text: string;
+          target_image_id: string;
+          tip_text: string | null;
+          translated_prompt_text: string | null;
+          try_number: number;
+          user_id: string;
+        };
+        Insert: {
+          ai_raw_json?: Json | null;
+          created_at?: string;
+          game_id: string;
+          generated_image_url_text?: string | null;
+          id?: string;
+          image_comparison_score?: number | null;
+          prompt_comparison_score?: number | null;
+          score1_number?: number;
+          score_breakdown_text?: string | null;
+          score_text?: string | null;
+          sent_prompt_text: string;
+          target_image_id: string;
+          tip_text?: string | null;
+          translated_prompt_text?: string | null;
+          try_number: number;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["submission_attempts"]["Insert"]>;
+        Relationships: [];
+      };
       submissions: {
         Row: {
+          selected_try_number: number | null;
           ai_raw_json: Json | null;
           created_at: string;
           game_id: string;
@@ -304,6 +345,7 @@ export type Database = {
           image_id?: string | null;
           prompt_comparison_score?: number | null;
           revised_prompt_text?: string | null;
+          selected_try_number?: number | null;
           score1_number?: number;
           score_breakdown_text?: string | null;
           score_text?: string | null;

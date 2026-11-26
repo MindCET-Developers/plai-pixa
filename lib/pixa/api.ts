@@ -12,7 +12,14 @@ import {
 } from "../ai/openrouter";
 import { generateImage } from "../ai/runware";
 import type { AiUsageEntry } from "../ai/usage";
-import { computeAdvance, computeNextTryNumber, computeScoreDelta, isOutOfAttempts } from "./gameLogic";
+import {
+  computeAdvance,
+  computeNextTryNumber,
+  computeScoreDelta,
+  effectiveSelectedTry,
+  isOutOfAttempts,
+  pickDefaultAttempt,
+} from "./gameLogic";
 import { GAME_CHANGED_EVENT, gameChannelTopic } from "./gameChannel";
 import { getPublicAppUrl } from "../supabase/env";
 
@@ -50,6 +57,12 @@ export const submitPromptSchema = z
     message: "Either gameId or code is required.",
     path: ["gameId"],
   });
+
+export const selectAttemptSchema = z.object({
+  gameId: uuidSchema,
+  userId: uuidSchema,
+  tryNumber: z.coerce.number().int().min(1).max(2),
+});
 
 export const submitReviewSchema = z.object({
   gameId: uuidSchema,
@@ -382,7 +395,7 @@ export async function advanceGame(gameId: string) {
   return { game: data, finished: advance.finished };
 }
 
-export async function getGameStateByIdOrCode(input: { id?: string; code?: number }) {
+export async function getGameStateByIdOrCode(input: { id?: string; code?: number; userId?: string }) {
   const admin = createAdminClient();
   const game = input.id
     ? await getGameById(admin, input.id)
@@ -392,13 +405,14 @@ export async function getGameStateByIdOrCode(input: { id?: string; code?: number
 
   if (!game) throw new ApiError("Game id or code is required.", 422);
 
-  const [images, players, submissions] = await Promise.all([
+  const [images, players, submissions, attempts] = await Promise.all([
     getGameImagesWithImage(admin, game.id),
     getGamePlayers(admin, game.id),
     getGameSubmissions(admin, game.id),
+    input.userId ? getPlayerAttempts(admin, game.id, input.userId) : Promise.resolve([]),
   ]);
 
-  return { game, images, players, submissions };
+  return { game, images, players, submissions, attempts };
 }
 
 export async function submitPrompt(request: Request) {
@@ -472,13 +486,9 @@ export async function submitPrompt(request: Request) {
     );
 
     const nextTry = computeNextTryNumber(existing?.try_number);
-    const submissionPayload = {
-      game_id: game.id,
-      user_id: body.userId,
-      target_image_id: game.current_image_id,
-      image_id: null,
+    const targetImageId = game.current_image_id;
+    const newAttempt = {
       sent_prompt_text: body.prompt,
-      revised_prompt_text: nextTry > 1 ? body.prompt : null,
       translated_prompt_text: moderation.translated_prompt,
       generated_image_url_text: generated.imageURL,
       tip_text: score.feedback,
@@ -488,20 +498,45 @@ export async function submitPrompt(request: Request) {
       prompt_comparison_score: score.prompt_comparison_score,
       score_breakdown_text: score.score_breakdown,
       ai_raw_json: score,
-      try_number: nextTry,
     };
 
-    const submission = await trackSubmissionStage(admin, failureContext, "save", async () => {
+    // Both attempts are kept. The submissions row mirrors the selected one, which
+    // defaults to the higher score; the student can switch with selectAttempt().
+    const { submission, selected } = await trackSubmissionStage(admin, failureContext, "save", async () => {
+      const scope = { game_id: game.id, user_id: body.userId, target_image_id: targetImageId };
+
+      if (existing) {
+        // Rows created before attempts were stored have no attempt-1 record yet.
+        await saveAttempt(admin, { ...scope, try_number: existing.try_number, ...attemptFields(existing) }, true);
+      }
+      await saveAttempt(admin, { ...scope, try_number: nextTry, ...newAttempt }, false);
+
+      const selectedTry = pickDefaultAttempt(
+        existing ? { tryNumber: existing.try_number, score: existing.score1_number } : null,
+        { tryNumber: nextTry, score: newAttempt.score1_number },
+      );
+      const selectedFields = selectedTry === nextTry || !existing ? newAttempt : attemptFields(existing);
+
       const { data, error } = await admin
         .from("submissions")
-        .upsert(submissionPayload, { onConflict: "game_id,user_id,target_image_id" })
+        .upsert(
+          {
+            ...scope,
+            image_id: null,
+            ...selectedFields,
+            revised_prompt_text: nextTry > 1 ? body.prompt : null,
+            try_number: nextTry,
+            selected_try_number: selectedTry,
+          },
+          { onConflict: "game_id,user_id,target_image_id" },
+        )
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return { submission: data, selected: selectedFields };
     });
 
-    const scoreDelta = computeScoreDelta(Number(score.score), existing?.score1_number);
+    const scoreDelta = computeScoreDelta(selected.score1_number, existing?.score1_number);
     await updateUserScores(admin, body.userId, scoreDelta);
     await upsertGameData(admin, game.id);
     await notifyGameChanged(admin, game.id);
@@ -510,6 +545,81 @@ export async function submitPrompt(request: Request) {
   } finally {
     await usage.flush();
   }
+}
+
+// The columns an attempt and the submissions row have in common.
+function attemptFields(row: Tables<"submissions"> | Tables<"submission_attempts">) {
+  return {
+    sent_prompt_text: row.sent_prompt_text,
+    translated_prompt_text: row.translated_prompt_text,
+    generated_image_url_text: row.generated_image_url_text,
+    tip_text: row.tip_text,
+    score_text: row.score_text,
+    score1_number: row.score1_number,
+    image_comparison_score: row.image_comparison_score,
+    prompt_comparison_score: row.prompt_comparison_score,
+    score_breakdown_text: row.score_breakdown_text,
+    ai_raw_json: row.ai_raw_json,
+  };
+}
+
+async function saveAttempt(
+  admin: SupabaseAdmin,
+  attempt: Database["public"]["Tables"]["submission_attempts"]["Insert"],
+  keepExisting: boolean,
+) {
+  const { error } = await admin
+    .from("submission_attempts")
+    .upsert(attempt, { onConflict: "game_id,user_id,target_image_id,try_number", ignoreDuplicates: keepExisting });
+  if (error) throw error;
+}
+
+/** Lets a student choose which of their two attempts is projected and scored. */
+export async function selectAttempt(request: Request) {
+  const body = await parseRequest(selectAttemptSchema, request);
+  const admin = createAdminClient();
+  const game = await getGameById(admin, body.gameId);
+
+  // Once the teacher moves on, the default (higher score) stays.
+  if (game.progress_option_progress !== "active" || !game.current_image_id) {
+    throw new ApiError("The round is over, so the choice is locked.", 409);
+  }
+
+  const { data: player } = await admin
+    .from("game_players")
+    .select("id")
+    .eq("game_id", game.id)
+    .eq("user_id", body.userId)
+    .maybeSingle();
+  if (!player) throw new ApiError("The student has not joined this game.", 403);
+
+  const existing = await getExistingSubmission(admin, game.id, body.userId, game.current_image_id);
+  if (!existing) throw new ApiError("There is no submission to choose from.", 404);
+  if (effectiveSelectedTry(existing) === body.tryNumber) return { submission: existing };
+
+  const { data: attempt, error: attemptError } = await admin
+    .from("submission_attempts")
+    .select("*")
+    .eq("game_id", game.id)
+    .eq("user_id", body.userId)
+    .eq("target_image_id", game.current_image_id)
+    .eq("try_number", body.tryNumber)
+    .maybeSingle();
+  if (attemptError) throw attemptError;
+  if (!attempt) throw new ApiError("That attempt does not exist.", 404);
+
+  const { data: submission, error } = await admin
+    .from("submissions")
+    .update({ ...attemptFields(attempt), selected_try_number: body.tryNumber })
+    .eq("id", existing.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await updateUserScores(admin, body.userId, computeScoreDelta(attempt.score1_number, existing.score1_number));
+  await notifyGameChanged(admin, game.id);
+
+  return { submission };
 }
 
 export async function submitReview(request: Request) {
@@ -861,6 +971,19 @@ async function getGameSubmissions(admin: SupabaseAdmin, gameId: string) {
     .select("*, user:users(id, name_text, avatar_image, final_score_number)")
     .eq("game_id", gameId)
     .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+// Only a student's own attempts are sent to their device; the host board never needs them.
+async function getPlayerAttempts(admin: SupabaseAdmin, gameId: string, userId: string) {
+  const { data, error } = await admin
+    .from("submission_attempts")
+    .select("*")
+    .eq("game_id", gameId)
+    .eq("user_id", userId)
+    .order("try_number", { ascending: true });
 
   if (error) throw error;
   return data;
